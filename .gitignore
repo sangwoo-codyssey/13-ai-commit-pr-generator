@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.DS_Store
+.idea/
+.vscode/
+
+# --- 자격증명 (절대 커밋 금지) ---
+# AI API Key 는 환경변수로만 관리한다 (과제 §7). 예시 파일만 올린다.
+.env
+.env.*
+!.env.example
+
+# --- 로컬 전용 (원격과 동일하게 가므로 애초에 커밋하지 않는다) ---
+HANDOFF.md
+plans/
