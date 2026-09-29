@@ -107,6 +107,14 @@ class CollectCommitTest(GitRepoTestCase):
         self.assertIn("문서.md", ctx.diff)
         self.assertIn("+고친 줄", ctx.diff)
 
+    def test_diff_prefixes_are_fixed_even_if_user_config_removes_them(self):
+        self.repo.git("config", "diff.noprefix", "true")
+        self.repo.write("a.py", "print(10)\n")
+
+        diff = collect_commit(self.cwd).context.diff
+
+        self.assertTrue(diff.startswith("diff --git a/a.py b/a.py\n"))
+
     def test_staged_rename_keeps_original_path(self):
         self.repo.git("mv", "a.py", "c.py")
 
