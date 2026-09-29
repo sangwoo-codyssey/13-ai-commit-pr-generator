@@ -216,16 +216,23 @@ class PreconditionAndDryRunTest(CliTestCase):
         self.assertNotIn("Git status 수집", err)
 
 
-class PromptNotWrittenYetTest(CliTestCase):
-    def test_missing_prompt_is_reported_before_any_call(self):
+class RealPromptDryRunTest(CliTestCase):
+    """echo 프롬프트가 아닌 실제 prompts.py 가 전송 페이로드까지 닿는지 (API 호출 없음)."""
+
+    def test_pr_dry_run_prints_the_pr_prompt(self):
         self.repo.git("branch", "develop")
         self.repo.git("switch", "-q", "-c", "feature/x")
         self.repo.write("a.py", "print(10)\n")
         self.repo.commit_all("change")
-        code, out, err = self.run_cli("pr", env=FAKE_ENV)
-        self.assertEqual(code, 1)
-        self.assertEqual(out, "")
-        self.assertIn("[ERROR] PR 프롬프트가 아직 작성되지 않았습니다", err)
+
+        code, out, _ = self.run_cli("pr", "--dry-run", "--hint", "출력 값 오류 수정")
+
+        self.assertEqual(code, 0)
+        self.assertIn("Pull Request 제목과 본문 초안", out)
+        self.assertIn("'## Why', '## What', '## How to Test'", out)
+        self.assertIn("mode: pr\nsource: branch\nbranch: feature/x\nbase: develop\n", out)
+        self.assertIn("hint: 출력 값 오류 수정", out)
+        self.assertIn("+print(10)", out)
 
 
 class EndToEndTest(CliTestCase):

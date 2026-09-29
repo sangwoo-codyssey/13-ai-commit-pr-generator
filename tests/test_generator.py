@@ -108,7 +108,7 @@ class GenerateTest(unittest.TestCase):
         result = self.run_generate(client, PR)
 
         self.assertFalse(result.regenerated)
-        self.assertEqual(result.draft.title, "Feat: 추가")
+        self.assertEqual(result.draft.title, "feat: 추가")
         self.assertTrue(any("더 많이 어겨" in m for _, m in self.logs))
 
     def test_missing_retry_message_skips_regeneration_but_keeps_first_answer(self):

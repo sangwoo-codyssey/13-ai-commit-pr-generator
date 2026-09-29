@@ -49,6 +49,10 @@ COMMIT_TYPE_GUIDE = {
     "revert": "이전 커밋 되돌리기",
 }
 
+# 커밋·PR 이 같이 쓰는 작성 규칙 조각 — 한쪽만 고쳐 어긋나지 않게 한 곳에 둔다
+LANGUAGE_RULE = "- 제목의 요약과 본문은 한국어로 쓴다. 코드 식별자·파일 경로·명령어는 원문 그대로 둔다."
+TYPE_LINES = [f"  - {kind}: {meaning}" for kind, meaning in COMMIT_TYPE_GUIDE.items()]
+
 COMMIT_SYSTEM = "\n".join([
     "너는 git 변경 사항을 읽고 커밋 메시지 초안을 쓰는 도구다.",
     "",
@@ -59,9 +63,38 @@ COMMIT_SYSTEM = "\n".join([
     "- 커밋 메시지만 출력한다. 앞뒤 설명, 인사말, 코드펜스(```)를 붙이지 않는다.",
     "",
     "[작성 규칙]",
-    "- 제목의 요약과 본문은 한국어로 쓴다. 코드 식별자·파일 경로·명령어는 원문 그대로 둔다.",
+    LANGUAGE_RULE,
     "- type 은 Conventional Commits 를 따른다. 아래 중 변경의 성격에 가장 맞는 하나를 소문자로 쓴다.",
-    *(f"  - {kind}: {meaning}" for kind, meaning in COMMIT_TYPE_GUIDE.items()),
+    *TYPE_LINES,
+    "",
+    CONTEXT_GUIDE,
+])
+
+# PR 은 diff 에 없는 '왜'와 '어떻게 확인하나'를 써야 해서 근거 규칙을 둔다 (섹션별 기준)
+PR_SYSTEM = "\n".join([
+    "너는 git 브랜치의 변경 사항을 읽고 Pull Request 제목과 본문 초안을 쓰는 도구다.",
+    "",
+    "[출력 형식]",
+    "- 첫 줄: '<type>: <요약>' 형식의 PR 제목 1줄 (80자 이하)",
+    "- 둘째 줄: 빈 줄",
+    "- 셋째 줄부터: '## Why', '## What', '## How to Test' 세 섹션을 이 순서와 헤더 그대로 쓰고, "
+    "각 섹션 아래에 '- ' 불릿을 1개 이상 쓴다.",
+    "- PR 제목과 본문만 출력한다. 앞뒤 설명, 인사말, 코드펜스(```)를 붙이지 않는다.",
+    "",
+    "[작성 규칙]",
+    LANGUAGE_RULE,
+    "- type 은 Conventional Commits 를 따른다. 아래 중 브랜치 전체 변경의 중심 성격에 가장 맞는 하나를 "
+    "소문자로 쓴다.",
+    *TYPE_LINES,
+    "- 모든 내용은 입력(diff, files, untracked, hint)에 근거가 있어야 한다. 입력에 없는 사실·이유·명령을 지어내지 않는다.",
+    "",
+    "[섹션별 기준]",
+    "- Why (변경 배경): 이 변경으로 무엇이 가능해지거나 해결되는지. hint 가 있으면 그것을 배경으로 먼저 쓰고, "
+    "diff(코드·주석·테스트·문서)에서 읽히는 목적을 덧붙인다. 근거 없이 붙이는 일반론"
+    "('유지보수성 향상', '보안 강화' 등)은 쓰지 않는다.",
+    "- What (핵심 변경 사항): 리뷰어가 알아야 할 변경을 기능 단위로 묶어 쓴다. 파일마다 한 줄씩 나열하지 않는다.",
+    "- How to Test (테스트 방법): 명령·도구 이름은 입력에 실제로 나오는 것만 쓴다. 모르면 무엇을 실행해 보고 "
+    "무엇을 확인하는지를 바뀐 동작 기준으로 쓴다.",
     "",
     CONTEXT_GUIDE,
 ])
@@ -97,7 +130,8 @@ def build_commit_prompt(ctx: ChangeContext) -> Prompt:
 
 
 def build_pr_prompt(ctx: ChangeContext) -> Prompt:
-    raise NotImplementedError("PR 프롬프트가 아직 작성되지 않았습니다 (gitgen/prompts.py).")
+    return Prompt(system=PR_SYSTEM,
+                  user=format_context(ctx) + "\n\n위 브랜치 변경 사항의 PR 제목과 본문을 써 줘.")
 
 
 def build_retry_message(violations: list[str]) -> str:

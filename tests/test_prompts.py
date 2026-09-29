@@ -3,9 +3,10 @@ import unittest
 
 from gitgen.context import ChangeContext, FileChange
 from gitgen.prompts import (
-    COMMIT_TYPE_GUIDE, CONTEXT_GUIDE, EMPTY, build_commit_prompt, build_retry_message, format_context,
+    COMMIT_TYPE_GUIDE, CONTEXT_GUIDE, EMPTY, LANGUAGE_RULE, TYPE_LINES, build_commit_prompt,
+    build_pr_prompt, build_retry_message, format_context,
 )
-from gitgen.rules import COMMIT_TYPES
+from gitgen.rules import COMMIT_TYPES, PR_SECTIONS
 
 DIFF = "diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py\n@@ -1 +1 @@\n-print(1)\n+print(2)\n"
 
@@ -64,6 +65,37 @@ class CommitPromptTest(unittest.TestCase):
         for kind in COMMIT_TYPES:
             with self.subTest(kind=kind):
                 self.assertIn(f"  - {kind}: ", system)
+
+
+class PrPromptTest(unittest.TestCase):
+    def pr_context(self, **overrides):
+        values = dict(mode="pr", source="branch", branch="feature/x", base="develop")
+        values.update(overrides)
+        return context(**values)
+
+    def test_system_states_output_contract_and_user_carries_the_values(self):
+        prompt = build_pr_prompt(self.pr_context(hint="게이트웨이 사용"))
+        self.assertIn("형식의 PR 제목 1줄 (80자 이하)", prompt.system)
+        self.assertIn("'## " + "', '## ".join(PR_SECTIONS) + "'", prompt.system)   # 검증기와 같은 섹션·순서
+        self.assertIn("코드펜스", prompt.system)
+        self.assertIn(CONTEXT_GUIDE, prompt.system)
+        self.assertTrue(prompt.user.startswith("mode: pr\nsource: branch\nbranch: feature/x\nbase: develop\n"))
+        self.assertIn("hint: 게이트웨이 사용", prompt.user)
+        self.assertTrue(prompt.user.endswith("PR 제목과 본문을 써 줘."))
+
+    def test_shares_language_and_type_rules_with_commit_prompt(self):
+        commit, pr = build_commit_prompt(context()).system, build_pr_prompt(self.pr_context()).system
+        for piece in (LANGUAGE_RULE, *TYPE_LINES):
+            with self.subTest(piece=piece):
+                self.assertIn(piece, commit)
+                self.assertIn(piece, pr)
+
+    def test_grounding_rules_for_why_and_how_to_test(self):
+        system = build_pr_prompt(self.pr_context()).system
+        self.assertIn("입력에 없는 사실·이유·명령을 지어내지 않는다", system)
+        self.assertIn("hint 가 있으면 그것을 배경으로 먼저", system)
+        self.assertIn("명령·도구 이름은 입력에 실제로 나오는 것만", system)
+        self.assertIn("바뀐 동작 기준으로", system)
 
 
 class RetryMessageTest(unittest.TestCase):
