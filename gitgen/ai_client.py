@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping
@@ -29,6 +30,7 @@ class HttpResponse:
 
 
 Transport = Callable[[str, Mapping[str, str], bytes, float], HttpResponse]
+Recorder = Callable[[dict[str, object]], None]      # 호출 1회가 끝날 때마다 기록 한 건을 받는다
 
 
 def urllib_transport(url: str, headers: Mapping[str, str], body: bytes,
@@ -115,7 +117,8 @@ class ClaudeClient:
     def __init__(self, api_key: str, *, model: str, temperature: float | None,
                  max_tokens: int, timeout: float = DEFAULT_TIMEOUT,
                  budget: CallBudget | None = None, url: str = API_URL,
-                 transport: Transport = urllib_transport) -> None:
+                 transport: Transport = urllib_transport,
+                 recorder: Recorder | None = None) -> None:
         self._api_key = api_key
         self.model = model
         self.temperature = temperature
@@ -124,6 +127,7 @@ class ClaudeClient:
         self.budget = budget or CallBudget()
         self.url = url
         self._transport = transport
+        self.recorder = recorder
 
     def build_request(self, system: str,
                       messages: list[dict[str, str]]) -> tuple[dict[str, str], bytes]:
@@ -145,8 +149,39 @@ class ClaudeClient:
     def complete(self, system: str, messages: list[dict[str, str]]) -> Completion:
         headers, body = self.build_request(system, messages)
         self.budget.take()
+        started = time.monotonic()
+        response: HttpResponse | None = None
+        failure: AIError | None = None
         try:
-            response = self._transport(self.url, headers, body, self.timeout)
+            response = self._send(headers, body)
+            if response.status != 200:
+                raise error_from_response(response)
+            return parse_completion(response.body)
+        except AIError as e:
+            failure = e
+            raise
+        finally:
+            if self.recorder is not None:
+                self.recorder(self._record(body, response, failure, started))
+
+    def _record(self, body: bytes, response: HttpResponse | None, failure: AIError | None,
+                started: float) -> dict[str, object]:
+        """호출 1회의 기록. 요청은 실제로 보낸 바이트를 다시 읽은 것이고, 헤더(API Key)는 넣지 않는다."""
+        return {
+            "call": self.budget.used,
+            "call_limit": self.budget.limit,
+            "endpoint": self.url,
+            "elapsed_ms": round((time.monotonic() - started) * 1000),
+            "request": json.loads(body),
+            "status": response.status if response else None,
+            "response": _decode_body(response.body) if response else None,
+            "error": {"kind": failure.kind, "message": str(failure)} if failure else None,
+        }
+
+    def _send(self, headers: Mapping[str, str], body: bytes) -> HttpResponse:
+        """전송만 한다. 연결 실패·시간 초과를 원인별 AIError 로 바꾼다."""
+        try:
+            return self._transport(self.url, headers, body, self.timeout)
         except TimeoutError:
             raise self._timeout_error() from None
         except urllib.error.URLError as e:
@@ -157,9 +192,6 @@ class ClaudeClient:
         except (OSError, http.client.HTTPException) as e:
             raise AIError("network", f"API 와 통신하는 중 연결이 끊겼습니다: {e!r}",
                           hint="잠시 후 다시 시도하세요.") from None
-        if response.status != 200:
-            raise error_from_response(response)
-        return parse_completion(response.body)
 
     def _timeout_error(self) -> AIError:
         return AIError("timeout", f"API 응답이 {self.timeout:g}초 안에 오지 않았습니다.",
@@ -198,6 +230,14 @@ def error_from_response(response: HttpResponse) -> AIError:
     reason = api_message or "(응답 본문에 오류 설명이 없습니다)"
     return AIError(kind, f"API 요청 실패 ({label}): {reason}", status=status,
                    hint=hint, request_id=request_id)
+
+
+def _decode_body(body: bytes) -> object:
+    """기록용 — JSON 이면 객체로, 아니면(프록시 HTML 등) 앞부분만 문자열로."""
+    try:
+        return json.loads(body)
+    except ValueError:
+        return body[:2000].decode("utf-8", "replace")
 
 
 def parse_completion(body: bytes) -> Completion:
