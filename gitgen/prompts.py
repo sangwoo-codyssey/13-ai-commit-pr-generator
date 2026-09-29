@@ -101,4 +101,16 @@ def build_pr_prompt(ctx: ChangeContext) -> Prompt:
 
 
 def build_retry_message(violations: list[str]) -> str:
-    raise NotImplementedError("재생성 요청문이 아직 작성되지 않았습니다 (gitgen/prompts.py).")
+    """재생성 때 1차 응답 뒤에 붙는 user 메시지. commit·pr 공용이라 종류를 가리키는 말은 쓰지 않는다.
+
+    형식 규칙은 system 에 이미 있어(재생성 호출에도 같은 system) 다시 적지 않는다.
+    다만 '틀렸다'는 지적을 받은 모델은 사과·설명을 앞에 붙이기 쉽고, 그 줄은 파서가 제목으로
+    읽는다 — 그 한 가지만 여기서 다시 당부한다.
+    """
+    return "\n".join([
+        "방금 쓴 답이 아래 규칙을 어겼어.",
+        *(f"- {violation}" for violation in violations),
+        "",
+        "어긴 부분만 고치고 나머지는 방금 쓴 답 그대로 두고, 전체를 처음부터 끝까지 다시 출력해 줘.",
+        "사과나 설명 없이 고친 결과만 출력해.",
+    ])

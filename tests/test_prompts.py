@@ -3,7 +3,7 @@ import unittest
 
 from gitgen.context import ChangeContext, FileChange
 from gitgen.prompts import (
-    COMMIT_TYPE_GUIDE, CONTEXT_GUIDE, EMPTY, build_commit_prompt, format_context,
+    COMMIT_TYPE_GUIDE, CONTEXT_GUIDE, EMPTY, build_commit_prompt, build_retry_message, format_context,
 )
 from gitgen.rules import COMMIT_TYPES
 
@@ -64,6 +64,27 @@ class CommitPromptTest(unittest.TestCase):
         for kind in COMMIT_TYPES:
             with self.subTest(kind=kind):
                 self.assertIn(f"  - {kind}: ", system)
+
+
+class RetryMessageTest(unittest.TestCase):
+    VIOLATIONS = ["커밋 제목이 86자입니다. 72자 이하로 줄이세요.",
+                  "'## How to Test' 섹션이 없습니다. 이 헤더를 그대로 쓰고 아래에 '- ' 불릿을 쓰세요."]
+
+    def test_violations_are_listed_as_bullets_in_order(self):
+        message = build_retry_message(self.VIOLATIONS)
+        self.assertIn("\n".join(f"- {v}" for v in self.VIOLATIONS), message)
+
+    def test_asks_to_fix_only_violations_and_output_whole_answer_without_apology(self):
+        message = build_retry_message(self.VIOLATIONS[:1])
+        self.assertIn("나머지는 방금 쓴 답 그대로", message)
+        self.assertIn("전체를 처음부터 끝까지 다시 출력", message)
+        self.assertIn("사과나 설명 없이", message)
+
+    def test_fixed_wording_is_shared_by_commit_and_pr_and_does_not_repeat_format_rules(self):
+        fixed = build_retry_message([])                  # 위반 문장을 뺀 고정 문구만
+        for word in ("커밋", "PR", "[출력 형식]"):
+            with self.subTest(word=word):
+                self.assertNotIn(word, fixed)
 
 
 if __name__ == "__main__":
