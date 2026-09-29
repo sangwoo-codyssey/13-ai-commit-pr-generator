@@ -2,7 +2,10 @@ import dataclasses
 import unittest
 
 from gitgen.context import ChangeContext, FileChange
-from gitgen.prompts import CONTEXT_GUIDE, EMPTY, build_commit_prompt, format_context
+from gitgen.prompts import (
+    COMMIT_TYPE_GUIDE, CONTEXT_GUIDE, EMPTY, build_commit_prompt, format_context,
+)
+from gitgen.rules import COMMIT_TYPES
 
 DIFF = "diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py\n@@ -1 +1 @@\n-print(1)\n+print(2)\n"
 
@@ -47,12 +50,20 @@ class FormatContextTest(unittest.TestCase):
 class CommitPromptTest(unittest.TestCase):
     def test_system_states_output_contract_and_user_carries_the_values(self):
         prompt = build_commit_prompt(context(hint="값 수정"))
-        self.assertIn("첫 줄: 커밋 제목 1줄 (72자 이하", prompt.system)
+        self.assertIn("형식의 커밋 제목 1줄 (72자 이하", prompt.system)
         self.assertIn("코드펜스", prompt.system)
         self.assertIn(CONTEXT_GUIDE, prompt.system)
         self.assertTrue(prompt.user.startswith("mode: commit\n"))
         self.assertIn("hint: 값 수정", prompt.user)
         self.assertTrue(prompt.user.endswith("커밋 메시지를 써 줘."))
+
+    def test_convention_korean_and_conventional_commit_types(self):
+        system = build_commit_prompt(context()).system
+        self.assertIn("한국어로 쓴다", system)
+        self.assertEqual(tuple(COMMIT_TYPE_GUIDE), COMMIT_TYPES)     # 설명과 검증 규칙이 같은 목록
+        for kind in COMMIT_TYPES:
+            with self.subTest(kind=kind):
+                self.assertIn(f"  - {kind}: ", system)
 
 
 if __name__ == "__main__":

@@ -12,7 +12,7 @@ from helpers import GitRepoTestCase, fake_secret, patch_prompts
 # 키 모양이 아닌, 누가 봐도 가짜인 값. 요청은 127.0.0.1 가짜 서버로만 간다.
 FAKE_ENV = {"AI_API_KEY": "not-a-real-key"}
 
-GOOD_COMMIT = "Feat: 출력 값 변경\n\n- a.py 의 출력 값을 10으로 바꿈"
+GOOD_COMMIT = "feat: 출력 값 변경\n\n- a.py 의 출력 값을 10으로 바꿈"
 GOOD_PR = "Feat: 출력 값 변경\n\n## Why\n- 값이 틀렸다\n\n## What\n- a.py 수정\n\n## How to Test\n- 실행"
 
 

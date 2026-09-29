@@ -8,7 +8,7 @@ from gitgen.rules import COMMIT, PR
 CTX = ChangeContext(mode="commit", source="staged", branch="main", base=None,
                     files=[FileChange("M", "a.py")], untracked=[], diff="+x\n")
 PROMPT = Prompt(system="SYS", user="USER")
-GOOD = "Feat: 추가\n\n- a.py 수정"
+GOOD = "feat: 추가\n\n- a.py 수정"
 BAD = "Feat: " + "가" * 80                  # 제목 초과 → 재생성 사유
 
 
