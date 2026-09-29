@@ -87,8 +87,12 @@ class FakeApiServer:
         self._thread.start()
 
     @property
+    def base_url(self) -> str:
+        return f"http://127.0.0.1:{self._server.server_address[1]}"
+
+    @property
     def url(self) -> str:
-        return f"http://127.0.0.1:{self._server.server_address[1]}/v1/messages"
+        return self.base_url + "/v1/messages"
 
     def reply(self, status: int = 200, body: bytes = b"", headers: dict[str, str] | None = None,
               delay: float = 0.0) -> None:

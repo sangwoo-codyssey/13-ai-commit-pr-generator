@@ -14,7 +14,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from gitgen import prompts, rules
-from gitgen.ai_client import API_URL, AIError, ClaudeClient
+from gitgen.ai_client import API_URL, MESSAGES_PATH, AIError, ClaudeClient
 from gitgen.context import Collected
 from gitgen.generator import generate
 from gitgen.git_collector import GitError, NoChanges, collect_commit, collect_pr
@@ -22,7 +22,7 @@ from gitgen.render import render_draft, render_dry_run
 from gitgen.safe_mode import apply_safe_mode
 
 API_KEY_ENV = "AI_API_KEY"
-API_URL_ENV = "AI_API_URL"          # 비우면 공식 엔드포인트 (ai_client.API_URL)
+BASE_URL_ENV = "AI_API_BASE_URL"    # 비우면 공식 도메인. 뒤에 /v1/messages 는 도구가 붙인다
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 DEFAULT_MODEL = "claude-haiku-4-5"
 DEFAULT_TEMPERATURE = 0.2
@@ -61,20 +61,24 @@ def temperature_arg(text: str) -> float | None:
 
 
 def resolve_api_url(env: Mapping[str, str]) -> str:
-    """엔드포인트를 정한다. 바꾸면 API Key 가 그 주소로 가므로 https 만 받는다.
+    """base URL(도메인, 필요하면 게이트웨이 접두 경로까지)에 /v1/messages 를 붙인다.
 
-    예외는 로컬 주소의 http 뿐이다 (로컬 프록시·테스트용 가짜 서버).
+    바꾸면 API Key 가 그 주소로 가므로 https 만 받는다. 예외는 로컬 주소의 http 뿐이다
+    (로컬 프록시·테스트용 가짜 서버).
     """
-    url = env.get(API_URL_ENV, "").strip()
-    if not url:
+    base = env.get(BASE_URL_ENV, "").strip().rstrip("/")
+    if not base:
         return API_URL
-    parts = urllib.parse.urlsplit(url)
+    parts = urllib.parse.urlsplit(base)
     if not parts.hostname:
-        raise ValueError(f"{API_URL_ENV} 값이 URL 이 아닙니다: {url}")
-    if parts.scheme == "https" or (parts.scheme == "http" and parts.hostname in LOCAL_HOSTS):
-        return url
-    raise ValueError(f"{API_URL_ENV} 는 https 주소여야 합니다 — API Key 가 평문으로 전송됩니다: {url}\n"
-                     "(http 는 localhost·127.0.0.1·::1 만 허용)")
+        raise ValueError(f"{BASE_URL_ENV} 값이 URL 이 아닙니다: {base}")
+    if not (parts.scheme == "https" or (parts.scheme == "http" and parts.hostname in LOCAL_HOSTS)):
+        raise ValueError(f"{BASE_URL_ENV} 는 https 주소여야 합니다 — API Key 가 평문으로 전송됩니다: {base}\n"
+                         "(http 는 localhost·127.0.0.1·::1 만 허용)")
+    if parts.path.endswith(MESSAGES_PATH) or parts.query or parts.fragment:
+        raise ValueError(f"{BASE_URL_ENV} 에는 도메인까지만 적으세요 (예: https://api.example.com). "
+                         f"{MESSAGES_PATH} 는 도구가 붙입니다: {base}")
+    return base + MESSAGES_PATH
 
 
 def positive_int(text: str) -> int:
@@ -148,7 +152,7 @@ def run(args: argparse.Namespace, cwd: str, env: Mapping[str, str]) -> int:
         log("ERROR", str(e))
         return EXIT_ERROR
     if api_url != API_URL:
-        log("INFO", f"API 엔드포인트: {api_url} ({API_URL_ENV})")
+        log("INFO", f"API 엔드포인트: {api_url} ({BASE_URL_ENV})")
 
     try:
         collected = collect(args, cwd)
