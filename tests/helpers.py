@@ -20,6 +20,15 @@ HERMETIC_GIT_ENV = {
 }
 
 
+def fake_secret(prefix: str, body_length: int) -> str:
+    """마스킹 규칙에 걸리는 모양의 가짜 값. 실행할 때 조립한다.
+
+    소스에 키 모양 문자열을 그대로 두지 않는다 — public 레포라 비밀값 스캐너 오탐을 막는다.
+    본문은 FAKE + 0 반복이라 실제 키로 오해될 여지가 없다.
+    """
+    return prefix + "FAKE" + "0" * (body_length - 4)
+
+
 class TempRepo:
     def __init__(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()

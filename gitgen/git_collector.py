@@ -10,9 +10,11 @@ from dataclasses import dataclass
 
 from gitgen.context import ChangeContext, Collected, FileChange
 
-# 사용자 전역 설정(색상·외부 diff 도구·경로 이스케이프)이 출력 형식을 바꾸지 못하게 고정한다.
+# 사용자 전역 설정(색상·외부 diff 도구·경로 이스케이프·접두어)이 출력 형식을 바꾸지 못하게 고정한다.
+# a/ b/ 접두어는 safe-mode 가 파일 경로를 읽을 때 기대하는 모양이다 (diff.noprefix 등 무시).
 STATUS_CMD = ["status", "--porcelain=v1", "-z", "--branch"]
-DIFF_CMD = ["-c", "core.quotepath=false", "diff", "--no-color", "--no-ext-diff"]
+DIFF_CMD = ["-c", "core.quotepath=false", "diff", "--no-color", "--no-ext-diff",
+            "--src-prefix=a/", "--dst-prefix=b/"]
 
 
 class GitError(Exception):

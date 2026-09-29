@@ -3,7 +3,7 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 
 from gitgen.cli import build_parser, main
-from helpers import GitRepoTestCase
+from helpers import GitRepoTestCase, fake_secret
 
 # 키 모양이 아닌, 누가 봐도 가짜인 값. API 는 이 단계에서 호출되지 않는다.
 FAKE_ENV = {"AI_API_KEY": "not-a-real-key"}
@@ -105,6 +105,39 @@ class CliRunTest(GitRepoTestCase):
 
         self.assertEqual(code, 0)
         self.assertIn("[INFO] 현재 브랜치: feature/x → 비교 기준: develop", err)
+
+    def test_safe_mode_is_on_by_default(self):
+        key = fake_secret("sk-" + "ant-", 30)
+        self.repo.write("a.py", f'KEY = "{key}"\n')
+
+        code, out, err = self.run_cli("commit", "--dry-run")
+
+        self.assertEqual(code, 0)
+        self.assertNotIn(key, out)
+        self.assertIn('+KEY = "[MASKED:API_KEY]"', out)
+        self.assertIn("[INFO] safe-mode: 마스킹 1건(API_KEY 1)", err)
+
+    def test_no_safe_mode_warns_and_sends_as_is(self):
+        key = fake_secret("sk-" + "ant-", 30)
+        self.repo.write("a.py", f'KEY = "{key}"\n')
+
+        code, out, err = self.run_cli("commit", "--dry-run", "--no-safe-mode")
+
+        self.assertEqual(code, 0)
+        self.assertIn(key, out)
+        self.assertIn("[WARN] safe-mode 꺼짐", err)
+
+    def test_dry_run_shows_what_the_limit_left_out(self):
+        for i in range(12):
+            self.repo.write(f"f{i:02}.py", "x\n")
+        self.repo.git("add", "-A")
+
+        code, out, err = self.run_cli("commit", "--dry-run")
+
+        self.assertEqual(code, 0)
+        self.assertIn("전송 10/12파일", err)
+        self.assertIn("생략(전송 한도): 파일 2개", out)
+        self.assertIn("A  f11.py", out)          # 이름 목록은 전부 남는다
 
     def test_git_failure_is_reported_as_error(self):
         code, _, err = self.run_cli("pr", "--dry-run", "--base", "nope")

@@ -14,6 +14,7 @@ from pathlib import Path
 
 from gitgen.context import ChangeContext, Collected
 from gitgen.git_collector import GitError, NoChanges, collect_commit, collect_pr
+from gitgen.safe_mode import apply_safe_mode
 
 API_KEY_ENV = "AI_API_KEY"
 DEFAULT_MODEL = "claude-haiku-4-5"
@@ -124,9 +125,16 @@ def run(args: argparse.Namespace, cwd: str, env: Mapping[str, str]) -> int:
         return EXIT_OK
     report_collected(collected)
 
+    ctx = collected.context
+    if args.safe_mode:
+        ctx, report = apply_safe_mode(ctx)
+        log("INFO", report.summary())
+    else:
+        log("WARN", f"safe-mode 꺼짐: diff {ctx.diff_line_count}줄을 마스킹·제한 없이 전송합니다")
+
     if args.dry_run:
         log("INFO", "--dry-run: AI API 를 호출하지 않습니다")
-        print(format_dry_run(collected.context))
+        print(format_dry_run(ctx))
         return EXIT_OK
 
     log("ERROR", "AI API 호출 단계는 아직 구현되지 않았습니다.")
@@ -169,6 +177,8 @@ def format_dry_run(ctx: ChangeContext) -> str:
         lines.extend(f"  {path}" for path in ctx.untracked)
     if ctx.hint:
         lines.append(f"변경 이유(--hint): {ctx.hint}")
+    if ctx.omitted_files or ctx.omitted_lines:
+        lines.append(f"생략(전송 한도): 파일 {ctx.omitted_files}개 · {ctx.omitted_lines}줄")
     lines.append(f"----- diff ({ctx.diff_line_count}줄) -----")
     lines.append(ctx.diff.rstrip("\n"))
     lines.append("=" * 40)
