@@ -27,7 +27,9 @@ BASE_URL_ENV = "AI_API_BASE_URL"    # 비우면 공식 도메인. 뒤에 /v1/mes
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 LOG_FILE_ENV = "AI_LOG_FILE"        # 비우면 호출 기록을 남기지 않는다
 TOOL_DIR = Path(__file__).resolve().parent.parent
-DEFAULT_MODEL = "claude-haiku-4-5"
+# 과제 환경 게이트웨이(AI_API_BASE_URL)의 Claude Haiku 4.5 ID. temperature 를 받는 모델이다.
+# 공식 API(api.anthropic.com)에서는 같은 모델이 claude-haiku-4-5 — 그때는 --model 로 바꾼다.
+DEFAULT_MODEL = "claude-haiku-4"
 DEFAULT_TEMPERATURE = 0.2
 DEFAULT_MAX_TOKENS = 1024
 DEFAULT_BASE = "develop"

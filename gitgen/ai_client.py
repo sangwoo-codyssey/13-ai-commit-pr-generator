@@ -106,7 +106,8 @@ STATUS_GUIDE: dict[int, tuple[str, str]] = {
     401: ("auth", "API Key 가 올바른지 확인하세요 (오타·만료·폐기)."),
     402: ("billing", "결제 수단·크레딧을 확인하세요."),
     403: ("permission", "이 API Key 로는 허용되지 않은 요청입니다. 권한·조직 설정을 확인하세요."),
-    404: ("not_found", "모델 ID 를 확인하세요 (--model)."),
+    404: ("not_found", "모델 ID 를 확인하세요 (--model). 제공처마다 ID 가 다를 수 있으니 "
+                       "{base URL}/v1/models 로 쓸 수 있는 ID 를 확인하세요."),
     413: ("too_large", "요청이 너무 큽니다. --safe-mode 로 전송량을 줄이세요."),
     500: ("server", "API 서버 오류입니다. 잠시 후 다시 시도하세요."),
     529: ("overloaded", "API 가 일시적으로 과부하 상태입니다. 잠시 후 다시 시도하세요."),
