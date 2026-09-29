@@ -1,10 +1,10 @@
 import io
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
-from unittest import mock
 
 from fake_api import FakeApiServer, error_body, message_body
-from gitgen.cli import build_parser, main
+from gitgen.ai_client import API_URL
+from gitgen.cli import build_parser, main, resolve_api_url
 from helpers import GitRepoTestCase, fake_secret, patch_prompts
 
 # 키 모양이 아닌, 누가 봐도 가짜인 값. 요청은 127.0.0.1 가짜 서버로만 간다.
@@ -46,6 +46,27 @@ class ParserTest(unittest.TestCase):
             with self.subTest(argv=argv), self.assertRaises(SystemExit) as caught:
                 self.parse(*argv)
             self.assertEqual(caught.exception.code, 2)
+
+
+class ResolveApiUrlTest(unittest.TestCase):
+    def test_default_when_unset_or_blank(self):
+        for env in ({}, {"AI_API_URL": ""}, {"AI_API_URL": "   "}):
+            with self.subTest(env=env):
+                self.assertEqual(resolve_api_url(env), API_URL)
+
+    def test_https_and_local_http_are_accepted(self):
+        for url in ("https://gateway.example.com/v1/messages",
+                    "http://localhost:8080/v1/messages",
+                    "http://127.0.0.1:9000/v1/messages",
+                    "http://[::1]:9000/v1/messages"):
+            with self.subTest(url=url):
+                self.assertEqual(resolve_api_url({"AI_API_URL": url}), url)
+
+    def test_key_must_not_travel_in_plain_text(self):
+        for url in ("http://gateway.example.com/v1/messages", "ftp://example.com/x",
+                    "api.anthropic.com/v1/messages", "https://"):
+            with self.subTest(url=url), self.assertRaises(ValueError):
+                resolve_api_url({"AI_API_URL": url})
 
 
 class CliTestCase(GitRepoTestCase):
@@ -157,6 +178,30 @@ class PreconditionAndDryRunTest(CliTestCase):
         self.assertEqual(code, 1)
         self.assertIn("[ERROR] git diff", err)
 
+    def test_default_endpoint_is_shown_only_in_dry_run(self):
+        self.repo.write("a.py", "print(10)\n")
+        code, out, err = self.run_cli("commit", "--dry-run")
+        self.assertEqual(code, 0)
+        self.assertIn(f"POST {API_URL}", out)
+        self.assertNotIn("API 엔드포인트", err)
+
+    def test_custom_endpoint_is_announced(self):
+        self.repo.write("a.py", "print(10)\n")
+        url = "https://gateway.example.com/v1/messages"
+        code, out, err = self.run_cli("commit", "--dry-run", env={"AI_API_URL": url})
+        self.assertEqual(code, 0)
+        self.assertIn(f"[INFO] API 엔드포인트: {url} (AI_API_URL)", err)
+        self.assertIn(f"POST {url}", out)
+
+    def test_plain_http_endpoint_is_refused_before_anything_runs(self):
+        self.repo.write("a.py", "print(10)\n")
+        env = {**FAKE_ENV, "AI_API_URL": "http://gateway.example.com/v1/messages"}
+        code, out, err = self.run_cli("commit", env=env)
+        self.assertEqual(code, 1)
+        self.assertEqual(out, "")
+        self.assertIn("[ERROR] AI_API_URL 는 https 주소여야 합니다", err)
+        self.assertNotIn("Git status 수집", err)
+
 
 class PromptNotWrittenYetTest(CliTestCase):
     def test_missing_prompt_is_reported_before_any_call(self):
@@ -175,15 +220,13 @@ class EndToEndTest(CliTestCase):
         patch_prompts(self)
         self.server = FakeApiServer()
         self.addCleanup(self.server.close)
-        patcher = mock.patch("gitgen.cli.API_URL", self.server.url)
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        self.env = {**FAKE_ENV, "AI_API_URL": self.server.url}     # http://127.0.0.1:포트
         self.repo.write("a.py", "print(10)\n")
 
     def test_commit_message_in_one_call(self):
         self.server.reply(body=message_body(GOOD_COMMIT, input_tokens=1200, output_tokens=40))
 
-        code, out, err = self.run_cli("commit", env=FAKE_ENV)
+        code, out, err = self.run_cli("commit", env=self.env)
 
         self.assertEqual(code, 0)
         self.assertEqual(out, "--- Commit Message ---\n" + GOOD_COMMIT + "\n" + "-" * 22 + "\n")
@@ -199,7 +242,7 @@ class EndToEndTest(CliTestCase):
         self.server.reply(body=message_body("Feat: 출력 값 변경\n\n## Why\n- 값이 틀렸다\n\n## What\n- a.py 수정"))
         self.server.reply(body=message_body(GOOD_PR))
 
-        code, out, err = self.run_cli("pr", env=FAKE_ENV)
+        code, out, err = self.run_cli("pr", env=self.env)
 
         self.assertEqual(code, 0)
         self.assertIn("출력 규칙 위반 1건 → 1회 재생성합니다", err)
@@ -212,7 +255,7 @@ class EndToEndTest(CliTestCase):
     def test_api_error_is_reported_with_cause(self):
         self.server.reply(401, error_body("authentication_error", "invalid x-api-key"))
 
-        code, out, err = self.run_cli("commit", env=FAKE_ENV)
+        code, out, err = self.run_cli("commit", env=self.env)
 
         self.assertEqual(code, 1)
         self.assertEqual(out, "")
@@ -220,7 +263,7 @@ class EndToEndTest(CliTestCase):
         self.assertNotIn("not-a-real-key", err)
 
     def test_dry_run_never_calls_the_api(self):
-        code, _, _ = self.run_cli("commit", "--dry-run", env=FAKE_ENV)
+        code, _, _ = self.run_cli("commit", "--dry-run", env=self.env)
         self.assertEqual(code, 0)
         self.assertEqual(self.server.received, [])
 

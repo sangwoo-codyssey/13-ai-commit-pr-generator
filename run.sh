@@ -31,13 +31,17 @@ check_python() {
 }
 
 # API Key 를 셸 히스토리에 남기지 않으려면 이 디렉터리의 .env 에 두고 run.sh 로 실행한다.
-# 이미 export 된 AI_API_KEY 가 있으면 그쪽이 우선이다. 프로그램은 환경변수만 읽는다.
+# 변수마다 이미 export 된 값이 우선이다 (AI_API_KEY, AI_API_URL). 프로그램은 환경변수만 읽는다.
 load_env() {
-  if [ -z "${AI_API_KEY:-}" ] && [ -f "$SCRIPT_DIR/.env" ]; then
-    set -a
-    . "$SCRIPT_DIR/.env"
-    set +a
-  fi
+  [ -f "$SCRIPT_DIR/.env" ] || return 0
+  local exported_key="${AI_API_KEY:-}" exported_url="${AI_API_URL:-}"
+  set -a
+  . "$SCRIPT_DIR/.env"
+  set +a
+  # set -e 아래라 `[ ... ] && ...` 를 마지막 줄에 두면 거짓일 때 스크립트가 끝난다 — if 로 쓴다.
+  if [ -n "$exported_key" ]; then export AI_API_KEY="$exported_key"; fi
+  if [ -n "$exported_url" ]; then export AI_API_URL="$exported_url"; fi
+  return 0
 }
 
 # 호출한 위치(대상 Git 저장소의 루트)에서 실행한다 — cd 하지 않는다.
@@ -51,7 +55,7 @@ cmd_run() {
 cmd_test() {
   check_python
   cd "$SCRIPT_DIR"
-  unset AI_API_KEY
+  unset AI_API_KEY AI_API_URL
   exec "$PYTHON" -m unittest discover -s tests -v
 }
 
