@@ -23,7 +23,7 @@ class ParserTest(unittest.TestCase):
 
     def test_defaults(self):
         args = self.parse("commit")
-        self.assertEqual(args.model, "claude-haiku-4-5")
+        self.assertEqual(args.model, "claude-haiku-4")
         self.assertEqual(args.temperature, 0.2)
         self.assertEqual(args.max_tokens, 1024)
         self.assertTrue(args.safe_mode)
@@ -135,7 +135,7 @@ class PreconditionAndDryRunTest(CliTestCase):
         self.assertEqual(code, 0)
         self.assertIn("[INFO] Git status 수집 완료: 1개 파일 변경 감지", err)
         self.assertIn("DRY RUN", out)
-        self.assertIn("model claude-haiku-4-5 · temperature 보내지 않음 · max_tokens 1024", out)
+        self.assertIn("model claude-haiku-4 · temperature 보내지 않음 · max_tokens 1024", out)
         self.assertIn("ECHO SYSTEM", out)
         self.assertIn("M  a.py", out)
         self.assertIn("hint: 값 수정", out)
@@ -243,7 +243,7 @@ class EndToEndTest(CliTestCase):
 
         self.assertEqual(code, 0)
         self.assertEqual(out, "--- Commit Message ---\n" + GOOD_COMMIT + "\n" + "-" * 22 + "\n")
-        self.assertIn("[INFO] AI API 요청 중... (호출 1/2, 모델 claude-haiku-4-5)", err)
+        self.assertIn("[INFO] AI API 요청 중... (호출 1/2, 모델 claude-haiku-4)", err)
         self.assertIn("[DONE] 커밋 메시지 생성 완료 (API 호출 1회 · 입력 1,200 / 출력 40 토큰)", err)
         self.assertNotIn("[WARN]", err)
         self.assertEqual(len(self.server.received), 1)
