@@ -13,7 +13,9 @@ import urllib.request
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
-API_URL = "https://api.anthropic.com/v1/messages"
+DEFAULT_BASE_URL = "https://api.anthropic.com"
+MESSAGES_PATH = "/v1/messages"               # Anthropic 규격 경로 — 호환 게이트웨이도 같다
+API_URL = DEFAULT_BASE_URL + MESSAGES_PATH
 API_VERSION = "2023-06-01"
 DEFAULT_TIMEOUT = 60.0
 MAX_CALLS = 2

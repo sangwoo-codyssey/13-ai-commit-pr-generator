@@ -50,23 +50,34 @@ class ParserTest(unittest.TestCase):
 
 class ResolveApiUrlTest(unittest.TestCase):
     def test_default_when_unset_or_blank(self):
-        for env in ({}, {"AI_API_URL": ""}, {"AI_API_URL": "   "}):
+        for env in ({}, {"AI_API_BASE_URL": ""}, {"AI_API_BASE_URL": "   "}):
             with self.subTest(env=env):
                 self.assertEqual(resolve_api_url(env), API_URL)
 
-    def test_https_and_local_http_are_accepted(self):
-        for url in ("https://gateway.example.com/v1/messages",
-                    "http://localhost:8080/v1/messages",
-                    "http://127.0.0.1:9000/v1/messages",
-                    "http://[::1]:9000/v1/messages"):
-            with self.subTest(url=url):
-                self.assertEqual(resolve_api_url({"AI_API_URL": url}), url)
+    def test_messages_path_is_appended_to_the_base(self):
+        cases = {
+            "https://gateway.example.com": "https://gateway.example.com/v1/messages",
+            "https://gateway.example.com/": "https://gateway.example.com/v1/messages",
+            "https://gateway.example.com/anthropic": "https://gateway.example.com/anthropic/v1/messages",
+            "http://localhost:8080": "http://localhost:8080/v1/messages",
+            "http://127.0.0.1:9000": "http://127.0.0.1:9000/v1/messages",
+            "http://[::1]:9000": "http://[::1]:9000/v1/messages",
+        }
+        for base, expected in cases.items():
+            with self.subTest(base=base):
+                self.assertEqual(resolve_api_url({"AI_API_BASE_URL": base}), expected)
 
     def test_key_must_not_travel_in_plain_text(self):
-        for url in ("http://gateway.example.com/v1/messages", "ftp://example.com/x",
-                    "api.anthropic.com/v1/messages", "https://"):
-            with self.subTest(url=url), self.assertRaises(ValueError):
-                resolve_api_url({"AI_API_URL": url})
+        for base in ("http://gateway.example.com", "ftp://example.com", "api.anthropic.com", "https://"):
+            with self.subTest(base=base), self.assertRaises(ValueError):
+                resolve_api_url({"AI_API_BASE_URL": base})
+
+    def test_full_endpoint_in_base_is_refused_with_a_hint(self):
+        for base in ("https://gateway.example.com/v1/messages", "https://gateway.example.com/v1/messages/",
+                     "https://gateway.example.com?x=1"):
+            with self.subTest(base=base), self.assertRaises(ValueError) as caught:
+                resolve_api_url({"AI_API_BASE_URL": base})
+            self.assertIn("도메인까지만", str(caught.exception))
 
 
 class CliTestCase(GitRepoTestCase):
@@ -187,19 +198,19 @@ class PreconditionAndDryRunTest(CliTestCase):
 
     def test_custom_endpoint_is_announced(self):
         self.repo.write("a.py", "print(10)\n")
-        url = "https://gateway.example.com/v1/messages"
-        code, out, err = self.run_cli("commit", "--dry-run", env={"AI_API_URL": url})
+        env = {"AI_API_BASE_URL": "https://gateway.example.com"}
+        code, out, err = self.run_cli("commit", "--dry-run", env=env)
         self.assertEqual(code, 0)
-        self.assertIn(f"[INFO] API 엔드포인트: {url} (AI_API_URL)", err)
-        self.assertIn(f"POST {url}", out)
+        self.assertIn("[INFO] API 엔드포인트: https://gateway.example.com/v1/messages (AI_API_BASE_URL)", err)
+        self.assertIn("POST https://gateway.example.com/v1/messages", out)
 
     def test_plain_http_endpoint_is_refused_before_anything_runs(self):
         self.repo.write("a.py", "print(10)\n")
-        env = {**FAKE_ENV, "AI_API_URL": "http://gateway.example.com/v1/messages"}
+        env = {**FAKE_ENV, "AI_API_BASE_URL": "http://gateway.example.com"}
         code, out, err = self.run_cli("commit", env=env)
         self.assertEqual(code, 1)
         self.assertEqual(out, "")
-        self.assertIn("[ERROR] AI_API_URL 는 https 주소여야 합니다", err)
+        self.assertIn("[ERROR] AI_API_BASE_URL 는 https 주소여야 합니다", err)
         self.assertNotIn("Git status 수집", err)
 
 
@@ -220,7 +231,7 @@ class EndToEndTest(CliTestCase):
         patch_prompts(self)
         self.server = FakeApiServer()
         self.addCleanup(self.server.close)
-        self.env = {**FAKE_ENV, "AI_API_URL": self.server.url}     # http://127.0.0.1:포트
+        self.env = {**FAKE_ENV, "AI_API_BASE_URL": self.server.base_url}   # http://127.0.0.1:포트
         self.repo.write("a.py", "print(10)\n")
 
     def test_commit_message_in_one_call(self):
