@@ -218,11 +218,14 @@ class PreconditionAndDryRunTest(CliTestCase):
 
 class PromptNotWrittenYetTest(CliTestCase):
     def test_missing_prompt_is_reported_before_any_call(self):
+        self.repo.git("branch", "develop")
+        self.repo.git("switch", "-q", "-c", "feature/x")
         self.repo.write("a.py", "print(10)\n")
-        code, out, err = self.run_cli("commit", env=FAKE_ENV)
+        self.repo.commit_all("change")
+        code, out, err = self.run_cli("pr", env=FAKE_ENV)
         self.assertEqual(code, 1)
         self.assertEqual(out, "")
-        self.assertIn("[ERROR] 커밋 프롬프트가 아직 작성되지 않았습니다", err)
+        self.assertIn("[ERROR] PR 프롬프트가 아직 작성되지 않았습니다", err)
 
 
 class EndToEndTest(CliTestCase):
