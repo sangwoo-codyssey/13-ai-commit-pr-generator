@@ -18,11 +18,13 @@ def render_draft(draft: Draft) -> str:
                       "-" * len(PR_BODY_HEADER)])
 
 
-def render_dry_run(prompt: Prompt, model: str, temperature: float | None, max_tokens: int) -> str:
+def render_dry_run(prompt: Prompt, url: str, model: str, temperature: float | None,
+                   max_tokens: int) -> str:
     """API 에 보낼 내용 그대로 — safe-mode 가 적용된 뒤의 프롬프트다."""
     temp = "보내지 않음" if temperature is None else f"{temperature:g}"
     return "\n".join([
         "===== DRY RUN — AI API 를 호출하지 않습니다 =====",
+        f"POST {url}",
         f"model {model} · temperature {temp} · max_tokens {max_tokens}",
         "----- system -----",
         prompt.system,
