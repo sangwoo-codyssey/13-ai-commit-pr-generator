@@ -48,6 +48,12 @@ def generate(ctx: ChangeContext, client: Client, spec: OutputSpec, prompt: Promp
 
     if findings.errors:
         skip = _why_not_regenerate(first, client)
+        retry_message = None
+        if not skip:
+            try:
+                retry_message = build_retry_message(findings.errors)
+            except NotImplementedError:                   # 작성 전이면 1차 응답을 버리지 않는다
+                skip = "재생성 요청문이 아직 없어 재생성하지 않습니다."
         if skip:
             log("WARN", f"출력 규칙 위반 {len(findings.errors)}건 — {skip}")
         else:
@@ -55,7 +61,7 @@ def generate(ctx: ChangeContext, client: Client, spec: OutputSpec, prompt: Promp
                         + "\n".join(f"- {error}" for error in findings.errors))
             retry = messages + [
                 {"role": "assistant", "content": first.text},
-                {"role": "user", "content": build_retry_message(findings.errors)},
+                {"role": "user", "content": retry_message},
             ]
             try:
                 second = _request(client, prompt.system, retry, log)

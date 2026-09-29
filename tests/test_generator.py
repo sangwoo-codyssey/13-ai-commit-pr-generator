@@ -8,7 +8,7 @@ from gitgen.rules import COMMIT, PR
 CTX = ChangeContext(mode="commit", source="staged", branch="main", base=None,
                     files=[FileChange("M", "a.py")], untracked=[], diff="+x\n")
 PROMPT = Prompt(system="SYS", user="USER")
-GOOD = "Feat: 추가\n\n- a.py 수정"
+GOOD = "feat: 추가\n\n- a.py 수정"
 BAD = "Feat: " + "가" * 80                  # 제목 초과 → 재생성 사유
 
 
@@ -108,8 +108,20 @@ class GenerateTest(unittest.TestCase):
         result = self.run_generate(client, PR)
 
         self.assertFalse(result.regenerated)
-        self.assertEqual(result.draft.title, "Feat: 추가")
+        self.assertEqual(result.draft.title, "feat: 추가")
         self.assertTrue(any("더 많이 어겨" in m for _, m in self.logs))
+
+    def test_missing_retry_message_skips_regeneration_but_keeps_first_answer(self):
+        def not_written(violations):
+            raise NotImplementedError("재생성 요청문이 아직 작성되지 않았습니다")
+
+        client = FakeClient(done(BAD))
+        result = generate(CTX, client, COMMIT, PROMPT, not_written,
+                          lambda level, message: self.logs.append((level, message)))
+
+        self.assertEqual(result.calls, 1)
+        self.assertLessEqual(len(result.draft.title), 72)
+        self.assertTrue(any(level == "WARN" and "재생성 요청문이 아직 없어" in m for level, m in self.logs))
 
     def test_first_call_error_propagates(self):
         with self.assertRaises(AIError):

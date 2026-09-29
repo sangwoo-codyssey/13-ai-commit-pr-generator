@@ -2,8 +2,8 @@ import unittest
 
 from gitgen.context import ChangeContext, FileChange
 from gitgen.rules import (
-    PLACEHOLDER_BULLET, clean_title, finalize_commit, finalize_pr, parse_commit, parse_pr,
-    tidy_lines, truncate_title, validate_commit, validate_pr,
+    PLACEHOLDER_BULLET, clean_title, finalize_commit, finalize_pr, normalize_type_prefix,
+    parse_commit, parse_pr, tidy_lines, truncate_title, validate_commit, validate_pr,
 )
 
 CTX = ChangeContext(mode="commit", source="staged", branch="main", base=None,
@@ -47,9 +47,39 @@ class TidyTest(unittest.TestCase):
 class CommitRulesTest(unittest.TestCase):
     def test_parse_title_and_body(self):
         draft = parse_commit("커밋 메시지:\nFeat: 추가\n본문:\n- gitgen/cli.py 수정\n")
-        self.assertEqual(draft.title, "Feat: 추가")
+        self.assertEqual(draft.title, "feat: 추가")
         self.assertEqual(draft.body, ["- gitgen/cli.py 수정"])
-        self.assertEqual(draft.text(), "Feat: 추가\n\n- gitgen/cli.py 수정")
+        self.assertEqual(draft.text(), "feat: 추가\n\n- gitgen/cli.py 수정")
+
+    def test_type_prefix_case_and_spacing_are_normalized(self):
+        cases = {
+            "Feat : 추가": "feat: 추가",
+            "FIX: 오류 수정": "fix: 오류 수정",
+            "refactor:구조 정리": "refactor: 구조 정리",
+            "Docs(readme)： 설명 보강": "docs(readme): 설명 보강",
+            "feat(api)!: 응답 형식 변경": "feat(api)!: 응답 형식 변경",
+            "Update: 모르는 type 은 그대로": "Update: 모르는 type 은 그대로",
+            "API base URL 설정으로 변경": "API base URL 설정으로 변경",
+        }
+        for raw, expected in cases.items():
+            with self.subTest(raw=raw):
+                self.assertEqual(normalize_type_prefix(raw), expected)
+
+    def test_title_needs_a_known_type_prefix(self):
+        for title in ("API base URL 설정으로 변경", "Update: 설정 변경", "feat 추가"):
+            with self.subTest(title=title):
+                errors = validate_commit(parse_commit(title), CTX).errors
+                self.assertEqual(len(errors), 1)
+                self.assertIn("'<type>: <요약>' 형식이 아닙니다", errors[0])
+        for title in ("feat(cli): 옵션 추가", "revert: 이전 변경 되돌리기", "Chore: 스크립트 정리"):
+            with self.subTest(title=title):
+                self.assertEqual(validate_commit(parse_commit(title), CTX).errors, [])
+
+    def test_finalize_does_not_invent_a_type(self):
+        fixed, warnings = finalize_commit(parse_commit("API base URL 설정으로 변경"), CTX)
+        self.assertEqual(fixed.title, "API base URL 설정으로 변경")
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("type 접두어", warnings[0])
 
     def test_title_only_is_valid(self):
         findings = validate_commit(parse_commit("Fix: 오류 수정"), CTX)
@@ -85,7 +115,7 @@ class CommitRulesTest(unittest.TestCase):
         self.assertIn("자리표시자", warnings[0])
 
 
-GOOD_PR = """Feat: 옵션 추가
+GOOD_PR = """feat: 옵션 추가
 
 ## Why
 - 이유
@@ -100,7 +130,7 @@ GOOD_PR = """Feat: 옵션 추가
 class PrRulesTest(unittest.TestCase):
     def test_parse_good_pr(self):
         draft = parse_pr(GOOD_PR)
-        self.assertEqual(draft.title, "Feat: 옵션 추가")
+        self.assertEqual(draft.title, "feat: 옵션 추가")
         self.assertEqual([s.header for s in draft.sections], ["Why", "What", "How to Test"])
         self.assertEqual(draft.text(), GOOD_PR)
         self.assertEqual(validate_pr(draft, CTX).errors, [])
@@ -109,7 +139,7 @@ class PrRulesTest(unittest.TestCase):
         text = ("PR 제목: Fix: 수정\n\n**What**\n* 변경\n\n### how to test:\n1. 실행\n\n"
                 "## Why (변경 배경)\n- 이유\n\n## Notes\n- 참고")
         draft = parse_pr(text)
-        self.assertEqual(draft.title, "Fix: 수정")
+        self.assertEqual(draft.title, "fix: 수정")
         self.assertEqual([s.header for s in draft.sections], ["Why", "What", "How to Test", "Notes"])
         self.assertIn("## How to Test\n- 실행", draft.body_text)
         self.assertEqual(validate_pr(draft, CTX).errors, [])
@@ -125,6 +155,23 @@ class PrRulesTest(unittest.TestCase):
     def test_pr_title_limit(self):
         draft = parse_pr("Feat: " + "가" * 80 + "\n\n" + GOOD_PR.split("\n\n", 1)[1])
         self.assertIn("80자 이하로", validate_pr(draft, CTX).errors[0])
+
+    def test_pr_title_needs_a_known_type_prefix(self):
+        body = GOOD_PR.split("\n\n", 1)[1]
+        for title in ("API base URL 지원", "Update: 설정 변경"):
+            with self.subTest(title=title):
+                errors = validate_pr(parse_pr(f"{title}\n\n{body}"), CTX).errors
+                self.assertEqual(len(errors), 1)
+                self.assertIn("PR 제목이 '<type>: <요약>' 형식이 아닙니다", errors[0])
+        draft = parse_pr(f"Feat(cli) : 옵션 추가\n\n{body}")          # 대소문자·공백은 기계적으로 고친다
+        self.assertEqual(draft.title, "feat(cli): 옵션 추가")
+        self.assertEqual(validate_pr(draft, CTX).errors, [])
+
+    def test_finalize_pr_does_not_invent_a_type(self):
+        fixed, warnings = finalize_pr(parse_pr("API base URL 지원\n\n" + GOOD_PR.split("\n\n", 1)[1]), CTX)
+        self.assertEqual(fixed.title, "API base URL 지원")
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("PR 제목에 type 접두어", warnings[0])
 
     def test_finalize_adds_placeholders_in_order(self):
         draft = parse_pr("Feat: 추가\n\n## What\n변경 설명만 있음\n\n## Notes\n- 참고")

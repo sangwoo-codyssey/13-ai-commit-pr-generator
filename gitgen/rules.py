@@ -20,6 +20,9 @@ COMMIT_TITLE_MAX = 72
 PR_TITLE_MAX = 80
 PR_SECTIONS = ("Why", "What", "How to Test")
 PLACEHOLDER_BULLET = "- (직접 작성 필요)"
+# Conventional Commits type — 커밋·PR 제목은 '<type>: <요약>' (scope·! 는 표준이라 허용)
+COMMIT_TYPES = ("feat", "fix", "docs", "style", "refactor", "perf", "test", "build", "ci", "chore",
+                "revert")
 
 _FENCE = re.compile(r"^\s*```")
 _SEPARATOR = re.compile(r"^\s*-{3,}(?:\s.*\s-{3,})?\s*$")          # ---, --- Commit Message ---
@@ -32,6 +35,8 @@ _SECTION = re.compile(
     r"^\s*(?:#{1,6}\s*)?(?:\*\*)?\s*(why|what|how\s*to\s*test)\s*(?:\*\*)?\s*"
     r"(?:\([^)]*\))?\s*[:：]?\s*(?:\*\*)?\s*$", re.I)
 _OTHER_HEADER = re.compile(r"^\s*#{1,6}\s+(\S.*)$")
+_TYPE_PREFIX = re.compile(r"^([A-Za-z]+)(\([^)]*\))?(!)?\s*[:：]\s*(\S.*)$")
+_CONVENTIONAL = re.compile(rf"^(?:{'|'.join(COMMIT_TYPES)})(?:\([^)]+\))?!?: \S")
 
 
 @dataclass
@@ -125,6 +130,19 @@ def _title_findings(title: str, limit: int, what: str, recommended: int | None =
     return findings
 
 
+def _type_prefix_error(title: str, what: str) -> list[str]:
+    if not title or has_type_prefix(title):               # 빈 제목은 _title_findings 가 따로 알린다
+        return []
+    return [f"{what}이 '<type>: <요약>' 형식이 아닙니다. type 은 {', '.join(COMMIT_TYPES)} 중 하나를 소문자로 쓰세요."]
+
+
+def _type_prefix_warning(original: str, fixed: str, what: str) -> list[str]:
+    """어떤 type 인지는 내용 판단이라 지어내지 않고 알리기만 한다."""
+    if not original or has_type_prefix(fixed):
+        return []
+    return [f"{what}에 type 접두어({', '.join(COMMIT_TYPES)})가 없습니다 — 직접 붙이세요."]
+
+
 def _fix_title(title: str, limit: int, what: str, warnings: list[str]) -> str:
     if not title:
         warnings.append(f"{what}이 비어 있어 자리표시자를 넣었습니다 — 직접 작성하세요.")
@@ -151,6 +169,19 @@ class CommitDraft:
         return self.title + (f"\n\n{self.body_text}" if self.body else "")
 
 
+def normalize_type_prefix(title: str) -> str:
+    """알려진 type 이면 대소문자·공백만 고친다: 'Feat : 추가' → 'feat: 추가'. 모르는 type 은 그대로."""
+    match = _TYPE_PREFIX.match(title)
+    if not match or match.group(1).lower() not in COMMIT_TYPES:
+        return title
+    kind, scope, bang, summary = match.groups()
+    return f"{kind.lower()}{scope or ''}{bang or ''}: {summary}"
+
+
+def has_type_prefix(title: str) -> bool:
+    return bool(_CONVENTIONAL.match(title))
+
+
 def parse_commit(text: str) -> CommitDraft:
     lines = tidy_lines(text)
     title, i = "", 0
@@ -158,11 +189,12 @@ def parse_commit(text: str) -> CommitDraft:
         title = clean_title(lines[i])
         i += 1
     body = [line for line in lines[i:] if line.strip().lower() not in _BODY_LABELS]
-    return CommitDraft(title, _strip_blank_edges(body))
+    return CommitDraft(normalize_type_prefix(title), _strip_blank_edges(body))
 
 
 def validate_commit(draft: CommitDraft, ctx: ChangeContext) -> Findings:
     findings = _title_findings(draft.title, COMMIT_TITLE_MAX, "커밋 제목", COMMIT_TITLE_RECOMMENDED)
+    findings.errors.extend(_type_prefix_error(draft.title, "커밋 제목"))
     if _body_lacks_summary(draft, ctx):
         findings.errors.append("본문에 '- ' 불릿도 변경된 파일 이름도 없습니다. "
                                "핵심 변경 1~2개를 '- ' 불릿으로 쓰거나 본문을 빼세요.")
@@ -180,6 +212,7 @@ def _body_lacks_summary(draft: CommitDraft, ctx: ChangeContext) -> bool:
 def finalize_commit(draft: CommitDraft, ctx: ChangeContext) -> tuple[CommitDraft, list[str]]:
     warnings: list[str] = []
     title = _fix_title(draft.title, COMMIT_TITLE_MAX, "커밋 제목", warnings)
+    warnings.extend(_type_prefix_warning(draft.title, title, "커밋 제목"))
     body = draft.body
     if _body_lacks_summary(draft, ctx):
         body = bulletize(body)
@@ -251,11 +284,12 @@ def parse_pr(text: str) -> PrDraft:
     # 필수 섹션은 Why → What → How to Test 순서로, 나머지는 원래 순서대로 뒤에 둔다.
     order = {name: index for index, name in enumerate(PR_SECTIONS)}
     sections.sort(key=lambda s: order.get(s.header, len(order)) if s.required else len(order))
-    return PrDraft(title, _strip_blank_edges(preamble), sections)
+    return PrDraft(normalize_type_prefix(title), _strip_blank_edges(preamble), sections)
 
 
 def validate_pr(draft: PrDraft, ctx: ChangeContext) -> Findings:
     findings = _title_findings(draft.title, PR_TITLE_MAX, "PR 제목")
+    findings.errors.extend(_type_prefix_error(draft.title, "PR 제목"))
     for name in PR_SECTIONS:
         section = draft.section(name)
         if section is None:
@@ -268,6 +302,7 @@ def validate_pr(draft: PrDraft, ctx: ChangeContext) -> Findings:
 def finalize_pr(draft: PrDraft, ctx: ChangeContext) -> tuple[PrDraft, list[str]]:
     warnings: list[str] = []
     title = _fix_title(draft.title, PR_TITLE_MAX, "PR 제목", warnings)
+    warnings.extend(_type_prefix_warning(draft.title, title, "PR 제목"))
     sections = [Section(s.header, list(s.lines), s.required) for s in draft.sections]
     for index, name in enumerate(PR_SECTIONS):
         section = next((s for s in sections if s.required and s.header == name), None)
