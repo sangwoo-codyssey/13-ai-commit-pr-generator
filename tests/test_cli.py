@@ -1,10 +1,12 @@
 import io
+import json
 import unittest
+from pathlib import Path
 from contextlib import redirect_stderr, redirect_stdout
 
 from fake_api import FakeApiServer, error_body, message_body
 from gitgen.ai_client import API_URL
-from gitgen.cli import build_parser, main, resolve_api_url
+from gitgen.cli import TOOL_DIR, build_parser, main, resolve_api_url, resolve_log_path
 from helpers import GitRepoTestCase, fake_secret, patch_prompts
 
 # 키 모양이 아닌, 누가 봐도 가짜인 값. 요청은 127.0.0.1 가짜 서버로만 간다.
@@ -277,6 +279,39 @@ class EndToEndTest(CliTestCase):
         code, _, _ = self.run_cli("commit", "--dry-run", env=self.env)
         self.assertEqual(code, 0)
         self.assertEqual(self.server.received, [])
+
+    def test_call_log_has_one_line_per_call_in_the_same_run(self):
+        log_path = self.repo.path.parent / f"{self.repo.path.name}-calls.jsonl"
+        self.addCleanup(lambda: log_path.unlink(missing_ok=True))
+        self.server.reply(body=message_body("Feat: " + "가" * 80))      # 제목 초과 → 재생성
+        self.server.reply(body=message_body(GOOD_COMMIT))
+
+        code, _, err = self.run_cli("commit", env={**self.env, "AI_LOG_FILE": str(log_path)})
+
+        self.assertEqual(code, 0)
+        self.assertIn(f"[INFO] 호출 기록: {log_path}", err)
+        lines = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual([line["call"] for line in lines], [1, 2])
+        self.assertEqual(len({line["run_id"] for line in lines}), 1)
+        self.assertEqual([m["role"] for m in lines[1]["request"]["messages"]],
+                         ["user", "assistant", "user"])
+        self.assertNotIn("not-a-real-key", log_path.read_text(encoding="utf-8"))
+
+    def test_no_log_file_unless_asked(self):
+        self.server.reply(body=message_body(GOOD_COMMIT))
+        code, _, err = self.run_cli("commit", env=self.env)
+        self.assertEqual(code, 0)
+        self.assertNotIn("호출 기록", err)
+
+
+class ResolveLogPathTest(unittest.TestCase):
+    def test_relative_path_is_under_the_tool_directory(self):
+        self.assertIsNone(resolve_log_path({}))
+        self.assertIsNone(resolve_log_path({"AI_LOG_FILE": "  "}))
+        self.assertEqual(resolve_log_path({"AI_LOG_FILE": "logs/calls.jsonl"}),
+                         TOOL_DIR / "logs" / "calls.jsonl")
+        self.assertEqual(resolve_log_path({"AI_LOG_FILE": "/tmp/x.jsonl"}), Path("/tmp/x.jsonl"))
+        self.assertTrue((TOOL_DIR / "main.py").exists())
 
 
 if __name__ == "__main__":

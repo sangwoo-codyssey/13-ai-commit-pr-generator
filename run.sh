@@ -55,7 +55,7 @@ cmd_run() {
 cmd_test() {
   check_python
   cd "$SCRIPT_DIR"
-  unset AI_API_KEY AI_API_BASE_URL
+  unset AI_API_KEY AI_API_BASE_URL AI_LOG_FILE
   exec "$PYTHON" -m unittest discover -s tests -v
 }
 

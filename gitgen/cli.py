@@ -18,12 +18,15 @@ from gitgen.ai_client import API_URL, MESSAGES_PATH, AIError, ClaudeClient
 from gitgen.context import Collected
 from gitgen.generator import generate
 from gitgen.git_collector import GitError, NoChanges, collect_commit, collect_pr
+from gitgen.call_log import JsonlCallLog
 from gitgen.render import render_draft, render_dry_run
 from gitgen.safe_mode import apply_safe_mode
 
 API_KEY_ENV = "AI_API_KEY"
 BASE_URL_ENV = "AI_API_BASE_URL"    # 비우면 공식 도메인. 뒤에 /v1/messages 는 도구가 붙인다
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
+LOG_FILE_ENV = "AI_LOG_FILE"        # 비우면 호출 기록을 남기지 않는다
+TOOL_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_MODEL = "claude-haiku-4-5"
 DEFAULT_TEMPERATURE = 0.2
 DEFAULT_MAX_TOKENS = 1024
@@ -79,6 +82,15 @@ def resolve_api_url(env: Mapping[str, str]) -> str:
         raise ValueError(f"{BASE_URL_ENV} 에는 도메인까지만 적으세요 (예: https://api.example.com). "
                          f"{MESSAGES_PATH} 는 도구가 붙입니다: {base}")
     return base + MESSAGES_PATH
+
+
+def resolve_log_path(env: Mapping[str, str]) -> Path | None:
+    """상대 경로는 실행 위치가 아니라 도구 디렉터리 기준 — 다른 레포에 로그 파일을 흘리지 않게."""
+    raw = env.get(LOG_FILE_ENV, "").strip()
+    if not raw:
+        return None
+    path = Path(raw).expanduser()
+    return path if path.is_absolute() else TOOL_DIR / path
 
 
 def positive_int(text: str) -> int:
@@ -178,8 +190,13 @@ def run(args: argparse.Namespace, cwd: str, env: Mapping[str, str]) -> int:
         print(render_dry_run(prompt, api_url, args.model, args.temperature, args.max_tokens))
         return EXIT_OK
 
+    recorder = None
+    log_path = resolve_log_path(env)
+    if log_path is not None:
+        recorder = JsonlCallLog(log_path, args.command, warn=lambda message: log("WARN", message))
+        log("INFO", f"호출 기록: {log_path} (run_id {recorder.run_id})")
     client = ClaudeClient(api_key, model=args.model, temperature=args.temperature,
-                          max_tokens=args.max_tokens, url=api_url)
+                          max_tokens=args.max_tokens, url=api_url, recorder=recorder)
     result = generate(ctx, client, spec, prompt, prompts.build_retry_message, log)
 
     log("DONE", f"{spec.label} 생성 완료 (API 호출 {result.calls}회 · "
