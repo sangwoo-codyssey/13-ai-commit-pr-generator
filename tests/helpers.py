@@ -9,6 +9,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from gitgen.context import ChangeContext, Prompt
+
 # 사용자 전역·시스템 git 설정(서명 강제, 색상, diff 옵션 등)이 결과를 바꾸지 못하게 끊는다.
 HERMETIC_GIT_ENV = {
     "GIT_CONFIG_GLOBAL": os.devnull,
@@ -27,6 +29,26 @@ def fake_secret(prefix: str, body_length: int) -> str:
     본문은 FAKE + 0 반복이라 실제 키로 오해될 여지가 없다.
     """
     return prefix + "FAKE" + "0" * (body_length - 4)
+
+
+def echo_prompt(ctx: ChangeContext) -> Prompt:
+    """테스트용 프롬프트 빌더 — 받은 컨텍스트를 그대로 비춘다 (실제 프롬프트는 Phase 5 에서 사용자가)."""
+    lines = [f"{f.status}  {f.path}" for f in ctx.files]
+    if ctx.hint:
+        lines.append(f"hint: {ctx.hint}")
+    lines.append(f"omitted_files={ctx.omitted_files}")
+    return Prompt(system="ECHO SYSTEM", user="\n".join(lines) + "\n" + ctx.diff)
+
+
+def echo_retry(violations: list[str]) -> str:
+    return "RETRY:\n" + "\n".join(violations)
+
+
+def patch_prompts(test: unittest.TestCase) -> None:
+    patcher = mock.patch.multiple("gitgen.prompts", build_commit_prompt=echo_prompt,
+                                  build_pr_prompt=echo_prompt, build_retry_message=echo_retry)
+    patcher.start()
+    test.addCleanup(patcher.stop)
 
 
 class TempRepo:
