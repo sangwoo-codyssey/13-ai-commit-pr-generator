@@ -143,7 +143,7 @@ def main(argv: list[str] | None = None, cwd: str | None = None,
     env = os.environ if env is None else env
     try:
         return run(args, cwd, env)
-    except (GitError, AIError, NotImplementedError) as e:
+    except (GitError, AIError) as e:
         log("ERROR", str(e))
         return EXIT_ERROR
     except KeyboardInterrupt:

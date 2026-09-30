@@ -423,7 +423,7 @@ gitgen/
   generator.py          # 1회 호출 → 후처리 → 검증 → 재생성 판단
   render.py             # 구획을 나눈 최종 출력, --dry-run 출력
   call_log.py           # AI_LOG_FILE 호출 기록 (JSONL)
-tests/                  # unittest 144개
+tests/                  # unittest 143개
 ```
 
 ```bash
