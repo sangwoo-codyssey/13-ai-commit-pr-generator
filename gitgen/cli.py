@@ -31,7 +31,9 @@ TOOL_DIR = Path(__file__).resolve().parent.parent
 # 공식 API(api.anthropic.com)에서는 같은 모델이 claude-haiku-4-5 — 그때는 --model 로 바꾼다.
 DEFAULT_MODEL = "claude-haiku-4"
 DEFAULT_TEMPERATURE = 0.2
-DEFAULT_MAX_TOKENS = 1024
+# 상한일 뿐 목표 길이가 아니다 — 모델은 짧게 줄이지 않고 쓰다가 잘린다. 과금은 실제 출력만큼이라
+# 넉넉히 둔다 (실측 PR 최대 777토큰, safe-mode 로 입력이 200줄일 때).
+DEFAULT_MAX_TOKENS = 2048
 DEFAULT_BASE = "develop"
 
 EXIT_OK = 0
