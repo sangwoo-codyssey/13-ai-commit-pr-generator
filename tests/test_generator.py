@@ -111,6 +111,28 @@ class GenerateTest(unittest.TestCase):
         self.assertEqual(result.draft.title, "feat: 추가")
         self.assertTrue(any("더 많이 어겨" in m for _, m in self.logs))
 
+    def test_tie_keeps_first_answer_so_an_apology_line_does_not_become_the_title(self):
+        first = "API base URL 설정으로 변경\n\n- a.py 수정"                           # type 없음 1건
+        apology = "죄송합니다. 수정한 결과입니다.\n\nfeat: API base URL 설정으로 변경\n\n- a.py 수정"
+        client = FakeClient(done(first), done(apology))                              # 사과 줄이 제목 → type 없음 1건
+
+        result = self.run_generate(client)
+
+        self.assertEqual((result.calls, result.regenerated), (2, False))
+        self.assertEqual(result.draft.title, "API base URL 설정으로 변경")
+        self.assertTrue(any(level == "WARN" and "줄이지 못해" in m for level, m in self.logs))
+        self.assertIn("type 접두어", result.warnings[0])                             # 지어내지 않고 알린다
+
+    def test_regeneration_that_drops_the_body_is_used_with_a_warning(self):
+        client = FakeClient(done(BAD + "\n\n- a.py 수정"), done("feat: 짧은 제목"))    # 제목만 고치고 본문을 버림
+
+        result = self.run_generate(client)
+
+        self.assertTrue(result.regenerated)
+        self.assertEqual(result.draft.text(), "feat: 짧은 제목")
+        self.assertEqual(len(result.warnings), 1)
+        self.assertIn("1차 답에 있던 본문이 없습니다", result.warnings[0])
+
     def test_missing_retry_message_skips_regeneration_but_keeps_first_answer(self):
         def not_written(violations):
             raise NotImplementedError("재생성 요청문이 아직 작성되지 않았습니다")

@@ -45,6 +45,7 @@ def generate(ctx: ChangeContext, client: Client, spec: OutputSpec, prompt: Promp
     draft = spec.parse(first.text)
     findings = spec.validate(draft, ctx)
     regenerated = False
+    notes: list[str] = []
 
     if findings.errors:
         skip = _why_not_regenerate(first, client)
@@ -71,12 +72,18 @@ def generate(ctx: ChangeContext, client: Client, spec: OutputSpec, prompt: Promp
                 completions.append(second)
                 second_draft = spec.parse(second.text)
                 second_findings = spec.validate(second_draft, ctx)
-                if len(second_findings.errors) <= len(findings.errors):
+                # 위반이 실제로 줄어야 채택한다. 동점까지 받으면, 지적받은 모델이 앞에 붙인 사과 줄이
+                # 제목으로 읽혀 type 위반 1건 → 1건 으로 통과하던 구멍이 생긴다 (Phase 6 재현).
+                if len(second_findings.errors) < len(findings.errors):
+                    if _body_dropped(draft, second_draft):
+                        notes.append("재생성된 답에는 1차 답에 있던 본문이 없습니다 — 본문이 필요하면 다시 실행하세요.")
                     draft, findings, last, regenerated = second_draft, second_findings, second, True
-                else:
+                elif len(second_findings.errors) > len(findings.errors):
                     log("WARN", "재생성 결과가 규칙을 더 많이 어겨 1차 응답을 씁니다.")
+                else:
+                    log("WARN", "재생성 결과가 규칙 위반을 줄이지 못해 1차 응답을 씁니다.")
 
-    warnings = list(findings.warnings)
+    warnings = list(findings.warnings) + notes
     if findings.errors:
         draft, fixes = spec.finalize(draft, ctx)
         warnings.extend(fixes)
@@ -89,6 +96,14 @@ def generate(ctx: ChangeContext, client: Client, spec: OutputSpec, prompt: Promp
         output_tokens=sum(c.output_tokens for c in completions),
         regenerated=regenerated,
     )
+
+
+def _body_dropped(first: Draft, second: Draft) -> bool:
+    """제목 아래 내용이 있던 답이 재생성에서 제목만 남았다. 커밋 본문은 선택이라 위반으로는 안 잡힌다.
+
+    1차 본문을 가져와 붙이지는 않는다 — 조각을 병합하는 일이라 (Phase 5 에서 기각) 알리기만 한다.
+    """
+    return bool(first.body_text.strip()) and not second.body_text.strip()
 
 
 def _why_not_regenerate(first: Completion, client: Client) -> str | None:
