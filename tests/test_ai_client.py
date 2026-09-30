@@ -1,4 +1,6 @@
+import socket
 import unittest
+import urllib.error
 
 from fake_api import FakeApiServer, closed_port_url, error_body, message_body
 from gitgen.ai_client import API_VERSION, AIError, CallBudget, ClaudeClient
@@ -108,6 +110,20 @@ class HttpErrorTest(ClientTestCase):
                 self.assertIn(f"request-id: req_{status}", message)
                 self.assertNotIn(FAKE_KEY, message)
 
+    def test_bad_request_hint_follows_the_parameter_named_in_the_message(self):
+        # Phase 6 실측: max_tokens 초과 400 에 temperature 안내가 붙어 원인과 어긋났다
+        cases = [
+            ("temperature: not supported for this model", "--temperature none", "--max-tokens"),
+            ("max_tokens: 999999 > 64000, which is the maximum allowed", "--max-tokens", "--temperature"),
+            ("messages: at least one message is required", "위 메시지가 가리키는", "--temperature"),
+        ]
+        for api_message, expected, unexpected in cases:
+            with self.subTest(api_message=api_message):
+                self.server.reply(400, error_body("invalid_request_error", api_message))
+                message = str(self.fail())
+                self.assertIn(expected, message)
+                self.assertNotIn(unexpected, message)
+
     def test_rate_limit_says_how_long_to_wait(self):
         self.server.reply(429, error_body("rate_limit_error", "slow down"), {"retry-after": "7"})
         error = self.fail()
@@ -133,6 +149,16 @@ class TransportFailureTest(ClientTestCase):
         error = self.fail(self.client(url=closed_port_url()))
         self.assertEqual(error.kind, "network")
         self.assertIn("네트워크 오류", str(error))
+
+    def test_unknown_domain_points_to_the_base_url(self):
+        # 실제 DNS 조회 없이 urllib 가 이름 풀이 실패 때 올리는 모양 그대로 흉내 낸다
+        def no_such_host(url, headers, body, timeout):
+            raise urllib.error.URLError(socket.gaierror(8, "nodename nor servname provided, or not known"))
+
+        error = self.fail(self.client(url="https://gateway.invalid/v1/messages", transport=no_such_host))
+        self.assertEqual(error.kind, "network")
+        self.assertIn("API 주소의 도메인을 찾지 못했습니다 (gateway.invalid)", str(error))
+        self.assertIn("AI_API_BASE_URL", str(error))
 
 
 class CallBudgetTest(ClientTestCase):

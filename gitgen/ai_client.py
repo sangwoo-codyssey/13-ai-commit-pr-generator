@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import http.client
 import json
+import socket
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -99,10 +101,8 @@ class CallBudget:
         self.used += 1
 
 
-# 상태 코드 → (분류, 대처법). 429 는 retry-after 를 붙여 따로 만든다.
+# 상태 코드 → (분류, 대처법). 429 는 retry-after 를, 400 은 API 메시지를 보고 따로 만든다.
 STATUS_GUIDE: dict[int, tuple[str, str]] = {
-    400: ("bad_request", "요청 파라미터를 확인하세요. temperature 를 받지 않는 모델이면 "
-                         "--temperature none 으로 빼고 다시 실행하세요."),
     401: ("auth", "API Key 가 올바른지 확인하세요 (오타·만료·폐기)."),
     402: ("billing", "결제 수단·크레딧을 확인하세요."),
     403: ("permission", "이 API Key 로는 허용되지 않은 요청입니다. 권한·조직 설정을 확인하세요."),
@@ -188,6 +188,10 @@ class ClaudeClient:
         except urllib.error.URLError as e:
             if isinstance(e.reason, TimeoutError):     # 연결 단계의 시간 초과는 URLError 로 감싸 온다
                 raise self._timeout_error() from None
+            if isinstance(e.reason, socket.gaierror):   # 이름 풀이(DNS) 실패 — 주소 오타가 흔한 원인이다
+                host = urllib.parse.urlsplit(self.url).hostname
+                raise AIError("network", f"API 주소의 도메인을 찾지 못했습니다 ({host}): {e.reason}",
+                              hint="AI_API_BASE_URL 을 바꿨다면 도메인 오타를, 아니면 인터넷 연결을 확인하세요.") from None
             raise AIError("network", f"네트워크 오류로 API 에 연결하지 못했습니다: {e.reason}",
                           hint="인터넷 연결·프록시·방화벽을 확인하세요.") from None
         except (OSError, http.client.HTTPException) as e:
@@ -220,6 +224,8 @@ def error_from_response(response: HttpResponse) -> AIError:
         kind = "rate_limit"
         hint = (f"요청 한도를 넘었습니다. {wait}초 뒤에 다시 시도하세요." if wait
                 else "요청 한도를 넘었습니다. 잠시 뒤에 다시 시도하세요.")
+    elif status == 400:
+        kind, hint = "bad_request", _bad_request_hint(api_message or "")
     elif status in STATUS_GUIDE:
         kind, hint = STATUS_GUIDE[status]
     elif status >= 500:
@@ -231,6 +237,19 @@ def error_from_response(response: HttpResponse) -> AIError:
     reason = api_message or "(응답 본문에 오류 설명이 없습니다)"
     return AIError(kind, f"API 요청 실패 ({label}): {reason}", status=status,
                    hint=hint, request_id=request_id)
+
+
+def _bad_request_hint(api_message: str) -> str:
+    """400 은 원인이 여러 가지라 API 메시지가 가리키는 파라미터에 맞춰 안내한다.
+
+    Phase 6 실측: max_tokens 초과 400 에 temperature 안내가 붙어 원인과 어긋났다.
+    """
+    message = api_message.lower()
+    if "temperature" in message:
+        return "이 모델은 temperature 를 받지 않을 수 있습니다. --temperature none 으로 빼고 다시 실행하세요."
+    if "max_tokens" in message:
+        return "--max-tokens 를 모델의 출력 상한 이하로 줄이세요."
+    return "위 메시지가 가리키는 요청 파라미터를 확인하세요."
 
 
 def _decode_body(body: bytes) -> object:

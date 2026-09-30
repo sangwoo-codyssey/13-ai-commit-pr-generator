@@ -163,11 +163,11 @@ class SafeModeReport:
     def summary(self) -> str:
         if self.masked:
             detail = ", ".join(f"{kind} {count}" for kind, count in self.masked.most_common())
-            masked = f"마스킹 {sum(self.masked.values())}건({detail})"
-            # 마스킹은 제한보다 먼저라, 건수에는 결국 보내지 않은 부분도 들어 있다.
+            # 마스킹은 제한보다 먼저라 건수는 한도로 빠진 부분까지 센 값이다. 빠진 부분에 실제로
+            # 있었는지는 따지지 않고 세는 기준만 밝힌다 (Phase 6: 전부 전송된 파일에 있어도 "포함"이라 했다).
             if self.omitted_files or self.omitted_lines:
-                masked += " — 전송 안 된 부분 포함"
-            parts = [masked]
+                detail += ", 전송 한도 적용 전 기준"
+            parts = [f"마스킹 {sum(self.masked.values())}건({detail})"]
         else:
             parts = ["마스킹 0건"]
         if self.excluded:

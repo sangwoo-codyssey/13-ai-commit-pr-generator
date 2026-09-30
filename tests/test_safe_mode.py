@@ -181,11 +181,11 @@ class ApplySafeModeTest(unittest.TestCase):
                          "safe-mode: 마스킹 3건(API_KEY 2, EMAIL 1) · 민감 파일 1개 내용 제외 · "
                          "전송 2/2파일 · 10/14줄")
 
-    def test_summary_says_when_masked_count_includes_unsent_part(self):
+    def test_summary_states_masked_count_is_before_the_limit(self):
         diff = "".join(file_diff(f"f{i:02}.py", ["x"]) for i in range(10)) \
             + file_diff("late.py", ["late@example.com"])
         _, report = apply_safe_mode(context(diff))
-        self.assertIn("마스킹 1건(EMAIL 1) — 전송 안 된 부분 포함", report.summary())
+        self.assertIn("마스킹 1건(EMAIL 1, 전송 한도 적용 전 기준)", report.summary())
 
     def test_bearer_and_assignment_do_not_reach_across_lines(self):
         value = fake_secret("", 24) + "9"
