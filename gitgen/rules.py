@@ -36,6 +36,7 @@ _SECTION = re.compile(
     r"(?:\([^)]*\))?\s*[:：]?\s*(?:\*\*)?\s*$", re.I)
 _OTHER_HEADER = re.compile(r"^\s*#{1,6}\s+(\S.*)$")
 _TYPE_PREFIX = re.compile(r"^([A-Za-z]+)(\([^)]*\))?(!)?\s*[:：]\s*(\S.*)$")
+_CODE_SPAN = re.compile(r"`([^`\n]+)`")
 _CONVENTIONAL = re.compile(rf"^(?:{'|'.join(COMMIT_TYPES)})(?:\([^)]+\))?!?: \S")
 
 
@@ -296,7 +297,50 @@ def validate_pr(draft: PrDraft, ctx: ChangeContext) -> Findings:
             findings.errors.append(f"'## {name}' 섹션이 없습니다. 이 헤더를 그대로 쓰고 아래에 '- ' 불릿을 쓰세요.")
         elif not any(is_bullet(line) for line in section.lines):
             findings.errors.append(f"'## {name}' 섹션에 '- ' 불릿이 없습니다. 최소 1개 쓰세요.")
+    # 과제의 필수 규칙(길이·섹션·불릿)이 아닌 추가 검사라 재생성하지 않고 알리기만 한다 —
+    # '입력에 적혀 있나'만 볼 수 있어 추론으로는 맞는 명령도 걸린다(오탐). 판단은 사용자가 한다.
+    if unknown := _ungrounded_commands(draft, ctx):
+        findings.warnings.append(f"'## How to Test' 의 {_code_list(unknown)} 는 입력(diff·파일 목록·hint)에 "
+                                 "나오지 않는 명령입니다 — 이 레포에서 실제로 쓰는 명령인지 확인하세요.")
     return findings
+
+
+def _ungrounded_commands(draft: PrDraft, ctx: ChangeContext) -> list[str]:
+    """프롬프트 규칙('명령·도구 이름은 입력에 나온 것만')을 기계적으로 확인한다.
+
+    Phase 6 실측: 테스트 파일 내용이 safe-mode 로 빠지자 입력에 없는 `pytest` 를 지어냈다 (5회 중 1회).
+    """
+    section = draft.section("How to Test")
+    if section is None:
+        return []
+    spans = [span for line in section.lines for span in _CODE_SPAN.findall(line)]
+    return _unsupported_commands(spans, _input_text(ctx)) if spans else []
+
+
+def _input_text(ctx: ChangeContext) -> str:
+    """AI 가 실제로 받은 입력 중 근거가 될 수 있는 부분 (safe-mode 가 적용된 뒤의 값)."""
+    paths = [path for f in ctx.files for path in (f.path, f.orig_path) if path]
+    return "\n".join([ctx.diff, *paths, *ctx.untracked, ctx.hint or "", ctx.branch or "", ctx.base or ""])
+
+
+def _unsupported_commands(spans: list[str], source: str) -> list[str]:
+    """코드 표기(`…` 안쪽 문자열) 중 입력(source)에 근거가 없는 명령 이름을 중복 없이 나온 순서대로.
+
+    첫 부분(실행할 프로그램 자리)만 본다 — 지어낸 도구는 맨 앞에 오고(`pytest tests/x.py`),
+    뒤의 인자까지 보면 새 파일명·옵션에 과민해진다. 입력에는 `def f(ctx)`·`a/run.sh` 모양으로
+    나오므로 `(` 뒤와 앞의 `./` 를 떼고 부분 문자열로 찾는다.
+    """
+    unsupported: list[str] = []
+    for span in spans:
+        words = span.split()
+        name = words[0].split("(", 1)[0].removeprefix("./") if words else ""
+        if name and name not in source and name not in unsupported:
+            unsupported.append(name)
+    return unsupported
+
+
+def _code_list(names: list[str]) -> str:
+    return ", ".join(f"`{name}`" for name in names)
 
 
 def finalize_pr(draft: PrDraft, ctx: ChangeContext) -> tuple[PrDraft, list[str]]:

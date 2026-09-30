@@ -183,5 +183,57 @@ class PrRulesTest(unittest.TestCase):
         self.assertEqual(validate_pr(fixed, CTX).errors, [])
 
 
+PR_CTX = ChangeContext(mode="pr", source="branch", branch="feature/check", base="develop",
+                       files=[FileChange("M", "gitgen/rules.py"), FileChange("A", "tests/test_rules.py")],
+                       untracked=[], diff="diff --git a/gitgen/rules.py b/gitgen/rules.py\n+def check():\n")
+
+
+def pr_with_steps(*steps: str) -> str:
+    """What 에도 코드 표기를 둔다 — How to Test 만 검사하는지 보려고."""
+    return ("feat: 검사 추가\n\n## Why\n- 이유\n\n## What\n- `pytest` 설정은 건드리지 않음\n\n## How to Test\n"
+            + "\n".join(f"- {step}" for step in steps))
+
+
+class HowToTestGroundingTest(unittest.TestCase):
+    """Phase 6 실측: 입력에 없는 `pytest` 를 How to Test 에 지어냈다 → 경고로 알린다 (재생성 사유 아님)."""
+
+    def test_command_missing_from_input_is_only_a_warning(self):
+        findings = validate_pr(parse_pr(pr_with_steps("`pytest tests/test_rules.py` 로 확인")), PR_CTX)
+        self.assertEqual(findings.errors, [])                  # 오탐 가능성 때문에 재생성하지 않는다
+        self.assertEqual(len(findings.warnings), 1)
+        self.assertIn("`pytest` 는 입력(diff·파일 목록·hint)에 나오지 않는 명령", findings.warnings[0])
+
+    def test_path_from_input_is_grounded(self):
+        draft = parse_pr(pr_with_steps("`tests/test_rules.py` 를 실행해 새 검사가 통과하는지 확인"))
+        self.assertEqual(validate_pr(draft, PR_CTX).warnings, [])
+
+    def test_steps_without_code_and_other_sections_are_not_checked(self):
+        draft = parse_pr(pr_with_steps("입력에 없는 명령을 쓴 초안이 경고되는지 확인"))
+        self.assertEqual(validate_pr(draft, PR_CTX).warnings, [])
+
+    def test_call_parens_and_dot_slash_are_trimmed_before_matching(self):
+        ctx = ChangeContext(mode="pr", source="branch", branch="feature/check", base="develop",
+                            files=[FileChange("M", "run.sh")], untracked=[],
+                            diff="diff --git a/run.sh b/run.sh\n+def format_context(ctx):\n")
+        draft = parse_pr(pr_with_steps("`./run.sh test` 로 확인", "`format_context()` 출력 확인"))
+        self.assertEqual(validate_pr(draft, ctx).warnings, [])
+
+    def test_only_the_first_word_is_checked_and_names_are_listed_once(self):
+        draft = parse_pr(pr_with_steps("`pytest tests/새파일.py`", "`tox -e py310`", "`pytest -k check`"))
+        warnings = validate_pr(draft, PR_CTX).warnings
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("`pytest`, `tox` 는", warnings[0])      # 인자(새파일.py·-e)는 보지 않는다
+
+    def test_hint_counts_as_evidence(self):
+        ctx = ChangeContext(**{**PR_CTX.__dict__, "hint": "테스트는 pytest 로 돌린다"})
+        draft = parse_pr(pr_with_steps("`pytest tests/test_rules.py` 로 확인"))
+        self.assertEqual(validate_pr(draft, ctx).warnings, [])
+
+    def test_finalize_leaves_the_steps_untouched(self):
+        fixed, warnings = finalize_pr(parse_pr(pr_with_steps("`pytest` 로 확인")), PR_CTX)
+        self.assertEqual(fixed.section("How to Test").lines, ["- `pytest` 로 확인"])
+        self.assertEqual(warnings, [])                         # 경고는 validate 쪽 한 번만
+
+
 if __name__ == "__main__":
     unittest.main()
