@@ -76,7 +76,7 @@ run.sh run pr [--base develop] [공통 옵션]
 | `--max-tokens` | `2048` | 응답 길이 **상한** ([근거](#max_tokens-2048)) |
 | `--safe-mode` / `--no-safe-mode` | 켜짐 | 민감정보 마스킹 + diff 전송량 제한 ([민감정보 대응](#민감정보-대응-safe-mode)) |
 | `--hint TEXT` | 없음 | 변경 이유 한 줄. diff 에는 "왜"가 없어서 PR 의 Why 가 추측이 되기 쉽다 — 그 빈칸을 사람이 채운다 |
-| `--dry-run` | 꺼짐 | API 를 부르지 않고 **실제로 보낼 요청**(safe-mode 적용 후 system·user 프롬프트)을 출력한다. 비용 0 |
+| `--dry-run` | 꺼짐 | API 를 부르지 않고 **실제로 보낼 요청**(safe-mode 적용 후 system·user 프롬프트)을 출력한다. 비용 0, `AI_API_KEY` 없이도 동작 |
 | `--base` (pr 만) | `develop` | 비교 기준 브랜치 |
 
 종료 코드: `0` 성공·변경 없음 / `1` 실행 오류(Git·API) / `2` 사용법 오류.
@@ -167,6 +167,9 @@ API Key 가 없을 때 — 비용이 드는 일을 하기 전에 멈춘다:
         예) export AI_API_KEY="YOUR_KEY"
 ```
 
+`--dry-run` 은 API 를 부르지 않으므로 Key 가 없어도 이 오류 없이 보낼 프롬프트를 출력한다 — Key 를 받기 전에도
+safe-mode 결과와 프롬프트를 확인할 수 있다.
+
 변경 사항이 없을 때 (종료 코드 0):
 
 ```
@@ -215,6 +218,17 @@ API 호출 실패는 **API 가 돌려준 원인**과 **원인에 맞는 조치**
 ## 파라미터 선택 근거
 
 같은 입력으로 파라미터만 바꿔 실제로 호출해 보고 정했다 (Haiku 4.5, 2026-09-30).
+
+재현 방법 — 같은 staged 변경에서 파라미터만 바꿔 실행한다. `AI_LOG_FILE` 을 켜 두면 요청·응답 원문이 JSONL 로 남아 비교하기 쉽다.
+
+```bash
+run.sh run commit --dry-run                     # 먼저 보낼 프롬프트 확인 (비용 0) — 실행마다 입력이 같아야 비교가 된다
+run.sh run commit --temperature 0               # 2회 → 두 결과가 글자까지 같은지
+run.sh run commit --temperature 1.0             # 2회 → 제목부터 달라지는지
+run.sh run pr --base develop --max-tokens 200   # 1회 → stop_reason=max_tokens, 빠진 섹션에 자리표시자·[WARN]
+```
+
+호출 1회 비용은 커밋 약 $0.006, PR 약 $0.009 라 ([비용](#비용호출-제한)) 위 비교 전체가 약 $0.03 이다.
 
 ### temperature 0.2
 
@@ -402,6 +416,17 @@ diff --git a/config.py b/config.py            diff --git a/config.py b/config.py
 5. **근거 없는 일반론**(`안정성 향상` 등)이 temperature 0.2 의 커밋에서도 가끔(8회 중 1회) 섞인다.
 6. **잘린 diff 의 내용은 모른다.** safe-mode 한도를 넘은 파일은 이름만 가므로, 그 파일의 변경은 추측으로 채워질 수 있다.
 
+### 적용 전 검토 체크리스트
+
+형식 검증을 통과한 초안도 아래를 직접 보고 적용한다 (괄호는 해당 한계 번호).
+
+- [ ] 제목이 실제 변경 범위보다 넓지 않은가 — 아직 동작하지 않는 기능을 "구현"이라 쓰지 않았나 (1)
+- [ ] Why 의 이유가 diff·`--hint` 에 근거가 있는가 — `안정성 향상` 같은 일반론이 섞이지 않았나 (5)
+- [ ] How to Test 의 명령이 이 레포에서 실제로 쓰는 것인가 — `[WARN]` 으로 지적된 명령은 반드시 확인 (3)
+- [ ] `[INFO] safe-mode: … 전송 N/M파일` 에서 N < M 이면, 내용이 빠진 파일의 변경을 지어내지 않았나 — `--dry-run` 으로 무엇이 빠졌는지 확인 (6)
+- [ ] `[WARN]` 이 알린 자리표시자 `- (직접 작성 필요)` 와 `…` 로 잘린 제목을 직접 채웠나
+- [ ] What 이 함수 이름 나열이면 기능 단위로 묶었나 (2)
+
 ## 범위 밖 (과제 §7)
 
 - Git 수집은 `git status` / `git diff` 까지 (`git log`·`rev-parse` 도 쓰지 않는다)
@@ -425,6 +450,11 @@ gitgen/
   call_log.py           # AI_LOG_FILE 호출 기록 (JSONL)
 tests/                  # unittest 143개
 ```
+
+**프롬프트와 검증기는 한 쌍이다.** `prompts.py` 가 요구하는 출력 형식(첫 줄 제목 → 빈 줄 → `- ` 불릿, PR 은
+`## Why`/`## What`/`## How to Test`)은 `rules.py` 의 파서·검증·후처리가 기대하는 **형식 계약**이다.
+프롬프트의 형식 문구를 바꾸면 `rules.py` 와 `tests/test_rules.py` 를 함께 고친다. Conventional Commits type 목록은
+`prompts.COMMIT_TYPE_GUIDE` 와 `rules.COMMIT_TYPES` 가 같아야 하며 `tests/test_prompts.py` 가 이를 확인한다.
 
 ```bash
 ./run.sh test
