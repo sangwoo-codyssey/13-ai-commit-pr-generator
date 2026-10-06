@@ -64,5 +64,6 @@ shift || true
 case "$SUB" in
   run)  cmd_run "$@" ;;
   test) cmd_test ;;
-  *)    echo "사용법: $0 {run {commit|pr} [옵션...]|test}"; exit 1 ;;
+  demo) exec "$SCRIPT_DIR/demo.sh" ;;
+  *)    echo "사용법: $0 {run {commit|pr} [옵션...]|test|demo}"; exit 1 ;;
 esac
