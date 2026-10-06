@@ -33,6 +33,8 @@ git add <파일>                        # 커밋할 변경을 스테이징
   인터프리터를 직접 고르려면 `PYTHON=python3.12 run.sh run commit`.
 - `python3 /path/to/13-ai-commit-pr-generator/main.py commit` 으로 직접 실행해도 된다 (이때는 `.env` 를 읽지 않는다).
 - 테스트: 도구 디렉터리에서 `./run.sh test` — 실제 API 를 부르지 않는다 (아래 [구조와 테스트](#구조와-테스트)).
+- 데모: 도구 디렉터리에서 `./run.sh demo` — 임시 예제 저장소를 만들어 변경 없음 → commit → pr → `--max-tokens` → `--temperature`
+  순서로 Enter 를 누를 때마다 한 단계씩 실행한다. 실제 API 를 약 8회 부르며 단계마다 `s` 로 건너뛸 수 있다.
 
 ## 환경변수
 
@@ -436,7 +438,8 @@ diff --git a/config.py b/config.py            diff --git a/config.py b/config.py
 
 ```
 main.py                 # 진입점
-run.sh                  # run / test (3.10+ 인터프리터 탐색, .env 로드)
+run.sh                  # run / test / demo (3.10+ 인터프리터 탐색, .env 로드)
+demo.sh                 # 평가·시연용 단계별 데모 (임시 예제 저장소에서 실행)
 gitgen/
   cli.py                # 인자 해석 → 전제조건 → 수집 → safe-mode → 프롬프트 → 생성 → 출력, 종료 코드
   git_collector.py      # git status --porcelain=v1 -z / git diff → ChangeContext
